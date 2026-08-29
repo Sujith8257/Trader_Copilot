@@ -173,12 +173,18 @@ class TradingService {
     await ensureLoaded();
     final prices = <String, double>{};
     final rsiVals = <String, double>{};
-    for (final sym in market.symbols) {
-      try {
-        prices[sym] = await market.last(sym);
-      } catch (_) {
-        /* keep last known */
-      }
+    final pairs = await _mapPool<(String, double)>(
+      (sym) async {
+        try {
+          return (sym, await market.last(sym));
+        } catch (_) {
+          return null;
+        }
+      },
+      market.symbols,
+    );
+    for (final (sym, px) in pairs) {
+      prices[sym] = px;
     }
     paper.markAll(prices);
     final limitFills = paper.processLimits(prices);
@@ -203,10 +209,18 @@ class TradingService {
   Future<Map<String, double>> livePrices() async {
     await ensureLoaded();
     final prices = <String, double>{};
-    for (final sym in market.symbols) {
-      try {
-        prices[sym] = await market.last(sym);
-      } catch (_) {}
+    final pairs = await _mapPool<(String, double)>(
+      (sym) async {
+        try {
+          return (sym, await market.last(sym));
+        } catch (_) {
+          return null;
+        }
+      },
+      market.symbols,
+    );
+    for (final (sym, px) in pairs) {
+      prices[sym] = px;
     }
     return prices;
   }
@@ -219,22 +233,26 @@ class TradingService {
   // -- market data ---------------------------------------------------------
 
   Future<List<MarketRow>> marketOverview() async {
+    await market.ensureProducts();
     final rows = <MarketRow>[];
-    for (final sym in market.symbols) {
-      try {
-        final s = await agent.toolIndicators(sym);
-        rows.add(
-          MarketRow(
+    const pool = 6;
+    for (var i = 0; i < market.symbols.length; i += pool) {
+      final syms = market.symbols.skip(i).take(pool).toList();
+      final rs = await Future.wait(syms.map((sym) async {
+        try {
+          final st = await agent.toolIndicators(sym);
+          return MarketRow(
             symbol: sym,
-            last: (s['last'] as num).toDouble(),
-            changePct: (s['change_pct'] as num).toDouble(),
-            rsi: (s['rsi'] as num?)?.toDouble(),
-            trend: s['trend'] as String,
-          ),
-        );
-      } catch (_) {
-        /* skip on fetch failure */
-      }
+            last: (st['last'] as num).toDouble(),
+            changePct: (st['change_pct'] as num).toDouble(),
+            rsi: (st['rsi'] as num?)?.toDouble(),
+            trend: st['trend'] as String,
+          );
+        } catch (_) {
+          return null; // skip on fetch failure
+        }
+      }));
+      rows.addAll(rs.whereType<MarketRow>());
     }
     return rows;
   }
@@ -283,7 +301,7 @@ class TradingService {
         cash += bal * fx;
       } else if (cur == 'INR') {
         cash += bal;
-      } else if (coinbaseProducts.contains(cur)) {
+      } else if (market.symbols.contains(cur)) {
         double price = 0;
         try {
           price = await market.last(cur);
@@ -616,4 +634,20 @@ class TradingService {
       reason: r.reason,
     );
   }
+}
+
+/// Runs [fn] over [items] with a bounded concurrency pool (default 6) so a
+/// wider live universe never serializes N requests to Coinbase.
+Future<List<T>> _mapPool<T>(
+  Future<T?> Function(String) fn,
+  List<String> items, {
+  int pool = 6,
+}) async {
+  final out = <T>[];
+  for (var i = 0; i < items.length; i += pool) {
+    final chunk = items.skip(i).take(pool).toList();
+    final rs = await Future.wait(chunk.map(fn));
+    out.addAll(rs.whereType<T>());
+  }
+  return out;
 }

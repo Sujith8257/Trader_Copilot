@@ -181,20 +181,32 @@ class TradingAgent {
   // ------------------------------------------------------------------ //
 
   Future<List<Map<String, dynamic>>> toolScanMarket() async {
+    // Wide LIVE universe (Coinbase /products), never a hard-coded shortlist.
+    await market.ensureProducts();
     final rows = <Map<String, dynamic>>[];
-    for (final sym in market.symbols) {
-      try {
-        final s = snapshot(await market.bars(sym));
-        final trendScore = s['trend'] == 'UP' ? 1.0 : -0.5;
-        final r = s['rsi'] as double?;
-        final rsiScore = r == null
-            ? 0.0
-            : (r < 30 ? 1.0 : (r > 70 ? -1.0 : 0.3));
-        final mom = ((s['change_pct'] as num).toDouble() / 5).clamp(-1.5, 1.5);
-        rows.add({'symbol': sym, 'score': trendScore + rsiScore + mom, ...s});
-      } catch (_) {
-        /* skip symbol on fetch failure */
-      }
+    const pool = 6; // bounded concurrency - don't hammer the API
+    for (var i = 0; i < market.symbols.length; i += pool) {
+      final syms = market.symbols.skip(i).take(pool).toList();
+      final results = await Future.wait(syms.map((sym) async {
+        try {
+          final st = snapshot(await market.bars(sym));
+          final trendScore = st['trend'] == 'UP' ? 1.0 : -0.5;
+          final r = st['rsi'] as double?;
+          final rsiScore = r == null
+              ? 0.0
+              : (r < 30 ? 1.0 : (r > 70 ? -1.0 : 0.3));
+          final mom =
+              ((st['change_pct'] as num).toDouble() / 5).clamp(-1.5, 1.5);
+          return <String, dynamic>{
+            'symbol': sym,
+            'score': trendScore + rsiScore + mom,
+            ...st,
+          };
+        } catch (_) {
+          return null; // skip symbol on fetch failure
+        }
+      }));
+      rows.addAll(results.whereType<Map<String, dynamic>>());
     }
     rows.sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
     return rows;
@@ -295,7 +307,7 @@ class TradingAgent {
     emit(
       'scanner',
       'scan_market',
-      'Scoring all ${market.symbols.length} Coinbase products…',
+      'Scanning ${market.symbols.length} live Coinbase pairs…',
     );
     final scan = await toolScanMarket();
     final top = scan.take(4).toList();
@@ -429,17 +441,43 @@ class TradingAgent {
 
   static final RegExp _amountRe = RegExp(r'([\d][\d,]{2,}(?:\.\d+)?)');
 
-  static bool _wantsSuggestions(String goal) {
+  static const _coinNames = [
+    'bitcoin', 'ethereum', 'solana', 'cardano', 'dogecoin', 'chainlink',
+    'avalanche', 'polygon', 'uniswap', 'litecoin', 'ripple', 'polkadot',
+    'cosmos', 'stellar', 'monero', 'shiba', 'pepe', 'toncoin', 'aptos',
+    'sui', 'arbitrum', 'optimism', 'tron', 'near protocol',
+    'bitcoin cash', 'binance coin',
+  ];
+
+  /// True when the goal names a SPECIFIC coin. Such requests must always
+  /// reach the real LLM crew, never the canned suggestion carousel.
+  bool _namesCoin(String g) {
+    final upper = g.toUpperCase();
+    for (final sym in market.symbols) {
+      if (sym.length < 3) continue;
+      if (upper.contains(sym)) return true;
+    }
+    for (final name in _coinNames) {
+      if (g.contains(name)) return true;
+    }
+    return false;
+  }
+
+  /// Whole-market idea requests ONLY. A named coin or an analysis question
+  /// must never be shadowed by the canned "top 6" carousel: "invest 5000"
+  /// -> suggestions, but "should I invest in SOL" -> the real LLM crew.
+  bool _wantsSuggestions(String goal) {
     final g = goal.toLowerCase();
+    if (_namesCoin(g)) return false;
     const kw = [
-      'suggest', 'recommend', 'good position', 'opportunit', 'idea',
-      'what should i', 'invest', 'deploy', 'picks', 'best coin',
-      'what to buy', 'good trade',
+      'suggest', 'recommend', 'good position', 'good trade', 'opportunit',
+      'what should i buy', 'what to buy', 'best coin', 'picks', 'ideas',
+      'deploy',
     ];
     if (kw.any(g.contains)) return true;
     // an explicit amount with trade-ish words: "i have 5000 for trading"
     return _amountRe.hasMatch(g) &&
-        RegExp(r'(trade|position|amount|buy|market)').hasMatch(g);
+        RegExp(r'(invest|trade|position|buy|put in|deploy|market)').hasMatch(g);
   }
 
   static double? _extractAmount(String goal) {
@@ -453,7 +491,7 @@ class TradingAgent {
     res.step(
       'scanner',
       'scan_market',
-      'Scoring all ${market.symbols.length} live Coinbase products for '
+      'Scanning ${market.symbols.length} live Coinbase pairs for '
           'trade ideas…',
     );
     final scan = await toolScanMarket();
@@ -577,7 +615,7 @@ class TradingAgent {
     res.step(
       'scanner',
       'scan_market',
-      'Scoring all ${market.symbols.length} Coinbase products…',
+      'Scanning ${market.symbols.length} live Coinbase pairs…',
     );
     final scan = await toolScanMarket();
     for (final t in scan.take(3)) {

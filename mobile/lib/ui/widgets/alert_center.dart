@@ -153,6 +153,7 @@ class _AlertSheetState extends ConsumerState<_AlertSheet> {
               Text('New alert', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               _AlertForm(
+                symbols: ref.read(tradingServiceProvider).market.symbols,
                 symbol: _symbol,
                 metric: _metric,
                 op: _op,
@@ -172,6 +173,7 @@ class _AlertSheetState extends ConsumerState<_AlertSheet> {
 
 class _AlertForm extends StatelessWidget {
   const _AlertForm({
+    required this.symbols,
     required this.symbol,
     required this.metric,
     required this.op,
@@ -182,6 +184,7 @@ class _AlertForm extends StatelessWidget {
     required this.onCreate,
   });
 
+  final List<String> symbols;
   final String symbol;
   final AlertMetric metric;
   final AlertOp op;
@@ -193,6 +196,7 @@ class _AlertForm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final syms = symbols.isEmpty ? coinbaseProducts : symbols;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -201,12 +205,12 @@ class _AlertForm extends StatelessWidget {
           runSpacing: 8,
           children: [
             DropdownButton<String>(
-              value: symbol,
+              value: syms.contains(symbol) ? symbol : syms.first,
               items: [
-                for (final s in coinbaseProducts)
+                for (final s in syms)
                   DropdownMenuItem(value: s, child: Text(s)),
               ],
-              onChanged: (v) => onSymbol(v ?? 'BTC'),
+              onChanged: (v) => onSymbol(v ?? syms.first),
               underline: const SizedBox.shrink(),
             ),
             ChoiceChip(

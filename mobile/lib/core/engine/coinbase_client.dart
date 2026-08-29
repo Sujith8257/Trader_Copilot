@@ -166,6 +166,18 @@ class CoinbaseClient {
     return candles;
   }
 
+  /// PUBLIC Coinbase market data (NO JWT needed): the full live product
+  /// catalog. The market keeps only SPOT pairs quoted against USD, sorted by
+  /// 24h volume — see [LiveCoinbaseMarket.ensureProducts].
+  Future<List<Map<String, dynamic>>> getProducts({int limit = 250}) async {
+    final body = await _request(
+      'GET',
+      '$_api/market/products',
+      query: {'limit': '$limit', 'product_type': 'SPOT'},
+    );
+    return (body['products'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
   // -- authenticated surface -------------------------------------------------
   Future<List<Map<String, dynamic>>> getAccounts() async {
     final body = await _request(
@@ -200,10 +212,11 @@ class CoinbaseClient {
 class LiveCoinbaseMarket {
   LiveCoinbaseMarket({CoinbaseClient? client, List<String>? products})
     : client = client ?? CoinbaseClient(),
-      _products = products ?? coinbaseProducts;
+      _products = List.of(products ?? coinbaseProducts);
 
   final CoinbaseClient client;
-  final List<String> _products;
+  List<String> _products;
+  DateTime? _productsAt; // last successful live /products refresh
   final Map<String, List<Candle>> _bars = {};
   final Map<String, DateTime> _barsTs = {};
   final Map<String, (double, DateTime)> _spot = {};
@@ -211,6 +224,52 @@ class LiveCoinbaseMarket {
   String? lastError;
 
   List<String> get symbols => List.unmodifiable(_products);
+
+  /// Refreshes the scanned universe from Coinbase's LIVE product catalog
+  /// (public market-data endpoint, NO JWT): SPOT pairs quoted against USD,
+  /// top ~40 by 24h volume. Falls back to the curated [coinbaseProducts]
+  /// whenever the network is unavailable, so the app ALWAYS has a universe.
+  /// Cached 5 minutes; never throws.
+  Future<void> ensureProducts() async {
+    final at = _productsAt;
+    if (at != null && DateTime.now().difference(at).inMinutes < 5) return;
+    try {
+      final prods = await client.getProducts();
+      final ranked = <(String, double)>[];
+      for (final p in prods) {
+        final id = p['product_id'] as String? ?? '';
+        if (!id.endsWith('-USD')) continue;
+        final status = p['status'] as String? ?? 'online';
+        if (status != 'online') continue;
+        final type = p['product_type'] as String? ?? 'SPOT';
+        if (type != 'SPOT') continue;
+        if (p['trading_disabled'] == true) continue;
+        final base = id.substring(0, id.length - 4);
+        if (base.isEmpty || base == 'USD') continue;
+        ranked.add((base, _volOf(p)));
+      }
+      if (ranked.length >= 5) {
+        ranked.sort((a, b) => b.$2.compareTo(a.$2)); // highest volume first
+        _products = [for (final s in ranked.take(40)) s.$1];
+        _productsAt = DateTime.now();
+        lastError = null;
+      }
+    } catch (e) {
+      lastError = 'products: $e';
+    }
+  }
+
+  double _volOf(Map<String, dynamic> p) {
+    for (final k in const ['volume_24h', 'approximate_quote_24h_volume']) {
+      final v = p[k];
+      if (v is num) return v.toDouble();
+      if (v is String) {
+        final d = double.tryParse(v.replaceAll(',', ''));
+        if (d != null && d > 0) return d;
+      }
+    }
+    return -1;
+  }
 
   String product(String symbol) => '${symbol.trim().toUpperCase()}-USD';
 
