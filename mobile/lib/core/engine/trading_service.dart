@@ -20,6 +20,7 @@ import '../agent/llm_client.dart';
 import '../models.dart';
 import 'alerts.dart';
 import 'coinbase_client.dart';
+import 'history_store.dart';
 import 'paper_broker.dart';
 import 'risk_engine.dart';
 
@@ -80,6 +81,7 @@ class TradingService {
   late RiskEngine risk;
   late TradingAgent agent;
   late AlertEngine alerts = AlertEngine();
+  final HistoryStore history = HistoryStore();
   PaperBroker? _paper;
   BrainConfig? _brain;
   Settings _settings = Settings();
@@ -339,6 +341,16 @@ class TradingService {
         quantity: p.quantity,
         marketPrice: p.marketPrice,
       );
+      if (result.filled &&
+          p.side == Side.buy &&
+          (p.stopLoss != null || p.takeProfit != null)) {
+        // remember the proposal's risk plan for the Position detail screen
+        paper.setPositionStops(
+          p.symbol,
+          stopLoss: p.stopLoss,
+          takeProfit: p.takeProfit,
+        );
+      }
       await _persistPaper();
       return TradeExecution(
         executed: result.filled,
@@ -392,8 +404,119 @@ class TradingService {
     void Function(AgentStep)? onStep,
   }) async {
     await ensureLoaded();
-    return agent.runGoal(goal, broker: paper, brain: brain, onStep: onStep);
+    final result = await agent.runGoal(
+      goal,
+      broker: paper,
+      brain: brain,
+      onStep: onStep,
+    );
+    // Persist the session so the agent history survives restarts.
+    try {
+      await history.addSession(
+        goal: goal,
+        brain: result.brain,
+        reply: result.reply,
+        steps: [
+          for (final s in result.steps) [s.agent, s.tool, s.detail],
+        ],
+        proposals: [
+          for (final p in result.proposals)
+            {
+              'symbol': p.symbol,
+              'side': p.side.wire,
+              'quantity': p.quantity,
+              'price': p.marketPrice,
+              'allowed': p.allowed,
+            },
+        ],
+      );
+    } catch (_) {/* history must never break the crew */}
+    return result;
   }
+
+  // -- amount-based execution ---------------------------------------------------
+
+  /// Executes a proposal with a user-chosen ₹ amount: quantity is derived
+  /// from the live price, then the SAME Risk Engine gate applies.
+  Future<TradeExecution> executeWithAmount(
+    AgentProposal p,
+    double amount,
+    AccountMode mode,
+  ) async {
+    await ensureLoaded();
+    if (amount <= 0 || p.marketPrice <= 0) {
+      return TradeExecution(
+          executed: false, mode: mode, reason: 'Invalid amount.');
+    }
+    final qty = amount / p.marketPrice;
+    final verdict = risk.evaluate(
+      symbol: p.symbol,
+      side: p.side,
+      quantity: qty,
+      marketPrice: p.marketPrice,
+      account: paper.account,
+      entryPrice: p.marketPrice,
+      stopLoss: p.stopLoss,
+      takeProfit: p.takeProfit,
+      source: 'manual',
+      confidence: p.confidence,
+    );
+    if (!verdict.allowed) {
+      return TradeExecution(
+          executed: false, mode: mode, reason: verdict.violations.first);
+    }
+    return execute(
+      AgentProposal(
+        symbol: p.symbol,
+        side: p.side,
+        quantity: qty,
+        marketPrice: p.marketPrice,
+        stopLoss: p.stopLoss,
+        takeProfit: p.takeProfit,
+        rationale: p.rationale,
+        confidence: p.confidence,
+        verdict: verdict,
+      ),
+      mode,
+    );
+  }
+
+  /// Force-exit (sell) an ENTIRE open position at the live market price.
+  Future<TradeExecution> closePosition(String symbol, AccountMode mode) async {
+    await ensureLoaded();
+    final sym = symbol.trim().toUpperCase();
+    final pos = paper.account.positions[sym];
+    if (pos == null) {
+      return TradeExecution(
+          executed: false, mode: mode, reason: 'No open position in $sym.');
+    }
+    double price = pos.currentPrice;
+    try {
+      price = await market.last(sym);
+    } catch (_) {/* fall back to last known mark */}
+    final p = AgentProposal(
+      symbol: sym,
+      side: Side.sell,
+      quantity: pos.quantity,
+      marketPrice: price,
+      rationale: 'Force exit — full position closed from the Position screen.',
+      verdict: risk.evaluate(
+        symbol: sym,
+        side: Side.sell,
+        quantity: pos.quantity,
+        marketPrice: price,
+        account: paper.account,
+        entryPrice: price,
+        source: 'manual',
+      ),
+    );
+    if (!p.allowed) {
+      return TradeExecution(
+          executed: false, mode: mode, reason: p.verdict.violations.first);
+    }
+    return execute(p, mode);
+  }
+
 
   // -- manual orders (order ticket) ---------------------------------------------
 

@@ -170,10 +170,26 @@ class PaperBroker {
   /// Resting limit orders (persisted with the account snapshot).
   final List<LimitOrder> limitOrders = [];
 
-  /// Full persistence snapshot: account + resting limits.
+  /// Per-position metadata: when it was opened and the proposal's stop/target.
+  /// Keyed by symbol; persisted with the account snapshot; removed when the
+  /// position fully closes. Powers the Position detail screen.
+  final Map<String, Map<String, dynamic>> positionMeta = {};
+
+  /// Record/refresh stop-loss & take-profit for an open position.
+  void setPositionStops(String symbol, {double? stopLoss, double? takeProfit}) {
+    final pos = account.positions[symbol];
+    if (pos == null) return;
+    final m = positionMeta.putIfAbsent(symbol,
+        () => {'opened_at': DateTime.now().toIso8601String()});
+    if (stopLoss != null) m['stop_loss'] = stopLoss;
+    if (takeProfit != null) m['take_profit'] = takeProfit;
+  }
+
+  /// Full persistence snapshot: account + resting limits + position metadata.
   Map<String, dynamic> toSnapshot() => {
     ...account.toMap(),
     'limit_orders': [for (final o in limitOrders) o.toMap()],
+    'position_meta': positionMeta,
   };
 
   static PaperBroker fromSnapshot(Map<String, dynamic> m) {
@@ -182,6 +198,10 @@ class PaperBroker {
       for (final o in (m['limit_orders'] as List? ?? []))
         LimitOrder.fromMap(Map<String, dynamic>.from(o as Map)),
     ]);
+    b.positionMeta.addAll({
+      for (final e in (m['position_meta'] as Map? ?? {}).entries)
+        e.key: Map<String, dynamic>.from(e.value as Map),
+    });
     return b;
   }
 
@@ -259,6 +279,7 @@ class PaperBroker {
       if (cost > account.cash) {
         return FillResult(filled: false, reason: 'insufficient cash');
       }
+      final isNew = !account.positions.containsKey(symbol);
       account.cash -= cost;
       final pos = account.positions[symbol];
       if (pos == null) {
@@ -274,6 +295,9 @@ class PaperBroker {
         pos.quantity = total;
         pos.currentPrice = price;
       }
+      if (isNew) {
+        positionMeta[symbol] = {'opened_at': DateTime.now().toIso8601String()};
+      }
     } else {
       final pos = account.positions[symbol];
       if (pos == null || pos.quantity < quantity) {
@@ -286,6 +310,7 @@ class PaperBroker {
       pos.currentPrice = price;
       if (pos.quantity <= 1e-9) {
         account.positions.remove(symbol);
+        positionMeta.remove(symbol); // fully closed
       }
     }
     account.tradesToday += 1;

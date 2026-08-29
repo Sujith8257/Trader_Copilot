@@ -57,12 +57,26 @@ final accountProvider = FutureProvider.autoDispose<AccountState>((ref) async {
   return svc.paperAccount();
 });
 
-/// Session journal of executed trades.
+/// Session journal of executed trades — PERSISTED. Every fill (manual, AI,
+/// autopilot, limit) is stored via HistoryStore and reloaded on startup.
 class JournalNotifier extends Notifier<List<ExecutedTrade>> {
   @override
-  List<ExecutedTrade> build() => const [];
+  List<ExecutedTrade> build() {
+    _hydrate();
+    return const [];
+  }
 
-  void add(ExecutedTrade trade) => state = [...state, trade];
+  Future<void> _hydrate() async {
+    final svc = ref.read(tradingServiceProvider);
+    await svc.ensureLoaded();
+    final trades = await svc.history.loadTrades();
+    if (trades.isNotEmpty) state = trades;
+  }
+
+  void add(ExecutedTrade trade) {
+    state = [...state, trade];
+    ref.read(tradingServiceProvider).history.addTrade(trade);
+  }
 }
 
 final journalProvider = NotifierProvider<JournalNotifier, List<ExecutedTrade>>(
@@ -380,3 +394,17 @@ final pendingProposalsProvider =
     NotifierProvider<PendingProposalsNotifier, List<Object>>(
       PendingProposalsNotifier.new,
     );
+
+/// Persisted copilot/agent decision log (approve & reject records).
+final decisionsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  await ref.watch(engineReadyProvider.future);
+  return ref.watch(tradingServiceProvider).history.loadDecisions();
+});
+
+/// Persisted agent crew sessions (goal → trace → reply → proposals).
+final agentSessionsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  await ref.watch(engineReadyProvider.future);
+  return ref.watch(tradingServiceProvider).history.loadSessions();
+});

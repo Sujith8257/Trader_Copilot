@@ -7,6 +7,7 @@ import '../../core/engine/risk_engine.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
+import '../widgets/amount_dialog.dart';
 import '../widgets/common.dart';
 import '../widgets/proposal_card.dart';
 
@@ -113,12 +114,33 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   Future<void> _approve() async {
     final proposal = _proposal;
     if (proposal == null || !proposal.verdict.allowed || _executing) return;
+    // Ask HOW MUCH before executing - qty is derived from the live price.
+    final amount = await showAmountDialog(
+      context,
+      symbol: proposal.symbol,
+      side: proposal.side,
+      marketPrice: proposal.marketPrice,
+      suggestedAmount: proposal.quantity * proposal.marketPrice,
+    );
+    if (amount == null || !mounted) return;
     final mode = ref.read(tradingModeProvider);
     setState(() => _executing = true);
     try {
-      final exec = await ref
-          .read(tradingServiceProvider)
-          .execute(proposal, mode);
+      final svc = ref.read(tradingServiceProvider);
+      final exec = await svc.executeWithAmount(proposal, amount, mode);
+      svc.history.addDecision(
+        symbol: proposal.symbol,
+        side: proposal.side.wire,
+        quantity: exec.executed
+            ? amount / (exec.fillPrice ?? proposal.marketPrice)
+            : proposal.quantity,
+        price: exec.fillPrice ?? proposal.marketPrice,
+        mode: mode.name,
+        approved: exec.executed,
+        reason: exec.reason,
+        source: 'manual',
+      );
+      ref.invalidate(decisionsProvider);
       if (!mounted) return;
       if (exec.executed) {
         ref
@@ -127,7 +149,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               ExecutedTrade(
                 symbol: proposal.symbol,
                 side: proposal.side,
-                quantity: proposal.quantity,
+                quantity: amount / (exec.fillPrice ?? proposal.marketPrice),
                 filledPrice: exec.fillPrice ?? proposal.marketPrice,
                 at: DateTime.now(),
               ),
@@ -158,6 +180,21 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   }
 
   void _reject() {
+    final proposal = _proposal;
+    if (proposal != null) {
+      final svc = ref.read(tradingServiceProvider);
+      svc.history.addDecision(
+        symbol: proposal.symbol,
+        side: proposal.side.wire,
+        quantity: proposal.quantity,
+        price: proposal.marketPrice,
+        mode: ref.read(tradingModeProvider).name,
+        approved: false,
+        reason: 'Rejected by user',
+        source: 'manual',
+      );
+      ref.invalidate(decisionsProvider);
+    }
     setState(() => _proposal = null);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Proposal rejected. Nothing was executed.')),
@@ -175,6 +212,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
           const SizedBox(height: 18),
           const _AutopilotCard(),
           const _PendingQueue(),
+          const _CopilotHistory(),
           const SizedBox(height: 18),
           const SectionHeader('Propose a trade'),
           Text(
@@ -536,9 +574,32 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
 
   Future<void> _approve(AgentProposal p) async {
     final mode = ref.read(tradingModeProvider);
+    // Ask HOW MUCH before executing - qty is derived from the live price.
+    final amount = await showAmountDialog(
+      context,
+      symbol: p.symbol,
+      side: p.side,
+      marketPrice: p.marketPrice,
+      suggestedAmount: p.quantity * p.marketPrice,
+    );
+    if (amount == null || !mounted) return;
     setState(() => _busyId = '${p.symbol}${p.side.name}');
     try {
-      final exec = await ref.read(tradingServiceProvider).execute(p, mode);
+      final svc = ref.read(tradingServiceProvider);
+      final exec = await svc.executeWithAmount(p, amount, mode);
+      svc.history.addDecision(
+        symbol: p.symbol,
+        side: p.side.wire,
+        quantity: exec.executed
+            ? amount / (exec.fillPrice ?? p.marketPrice)
+            : p.quantity,
+        price: exec.fillPrice ?? p.marketPrice,
+        mode: mode.name,
+        approved: exec.executed,
+        reason: exec.reason,
+        source: 'autopilot',
+      );
+      ref.invalidate(decisionsProvider);
       if (!mounted) return;
       if (exec.executed) {
         ref
@@ -547,7 +608,7 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
               ExecutedTrade(
                 symbol: p.symbol,
                 side: p.side,
-                quantity: p.quantity,
+                quantity: amount / (exec.fillPrice ?? p.marketPrice),
                 filledPrice: exec.fillPrice ?? p.marketPrice,
                 at: DateTime.now(),
               ),
@@ -609,10 +670,107 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
             onApprove: p.verdict.allowed && _busyId == null
                 ? () => _approve(p)
                 : null,
-            onReject: () =>
-                ref.read(pendingProposalsProvider.notifier).remove(p),
+            onReject: () {
+              final svc = ref.read(tradingServiceProvider);
+              svc.history.addDecision(
+                symbol: p.symbol,
+                side: p.side.wire,
+                quantity: p.quantity,
+                price: p.marketPrice,
+                mode: ref.read(tradingModeProvider).name,
+                approved: false,
+                reason: 'Rejected by user',
+                source: 'autopilot',
+              );
+              ref.invalidate(decisionsProvider);
+              ref.read(pendingProposalsProvider.notifier).remove(p);
+            },
           ),
       ],
+    );
+  }
+}
+
+/// Copilot history: every persisted decision (approved / rejected /
+/// risk-blocked), loaded from storage, newest first.
+class _CopilotHistory extends ConsumerWidget {
+  const _CopilotHistory();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final decisions = ref.watch(decisionsProvider);
+    return decisions.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (list) {
+        if (list.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 24),
+            SectionHeader('History', trailing: '${list.length} decisions'),
+            const SizedBox(height: 10),
+            for (var i = list.length - 1;
+                i >= (list.length > 20 ? list.length - 20 : 0);
+                i--)
+              _DecisionTile(d: list[i]),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DecisionTile extends StatelessWidget {
+  const _DecisionTile({required this.d});
+  final Map<String, dynamic> d;
+
+  @override
+  Widget build(BuildContext context) {
+    final approved = d['approved'] == true;
+    final at =
+        DateTime.tryParse(d['at'] as String? ?? '') ?? DateTime.now();
+    final color = approved ? TC.gain : TC.loss;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: TC.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: TC.outline),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            approved ? Icons.check_circle : Icons.cancel,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${d['side']} ${d['quantity']} ${d['symbol']} @ ₹${d['price']}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '${d['source']} · ${d['mode']} · '
+                  '${approved ? 'executed' : (d['reason'] ?? 'rejected')} · '
+                  '${at.toLocal().toString().substring(0, 16)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

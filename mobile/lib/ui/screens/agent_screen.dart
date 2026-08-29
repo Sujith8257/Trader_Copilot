@@ -6,6 +6,7 @@ import '../../core/engine/risk_engine.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
+import '../widgets/amount_dialog.dart';
 import '../widgets/proposal_card.dart';
 
 /// The agentic Copilot chat: the on-phone crew (Scanner → Analyst →
@@ -108,8 +109,30 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
 
   Future<void> _approveDraft(AgentRunResult result, AgentProposal p) async {
     final mode = ref.read(tradingModeProvider);
+    // Ask HOW MUCH before executing — qty is derived from the live price.
+    final amount = await showAmountDialog(
+      context,
+      symbol: p.symbol,
+      side: p.side,
+      marketPrice: p.marketPrice,
+      suggestedAmount: p.quantity * p.marketPrice,
+    );
+    if (amount == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    final exec = await ref.read(tradingServiceProvider).execute(p, mode);
+    final svc = ref.read(tradingServiceProvider);
+    final exec = await svc.executeWithAmount(p, amount, mode);
+    // Persist the decision (approved or blocked) for the copilot history.
+    svc.history.addDecision(
+      symbol: p.symbol,
+      side: p.side.wire,
+      quantity: exec.executed ? amount / (exec.fillPrice ?? p.marketPrice) : p.quantity,
+      price: exec.fillPrice ?? p.marketPrice,
+      mode: mode.name,
+      approved: exec.executed,
+      reason: exec.reason,
+      source: 'agent',
+    );
+    ref.invalidate(decisionsProvider);
     if (!exec.executed) {
       messenger.showSnackBar(
         SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')),
@@ -123,7 +146,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
           ExecutedTrade(
             symbol: p.symbol,
             side: p.side,
-            quantity: p.quantity,
+            quantity: amount / (exec.fillPrice ?? p.marketPrice),
             filledPrice: exec.fillPrice ?? p.marketPrice,
             at: DateTime.now(),
           ),
@@ -147,6 +170,17 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     return Scaffold(
       body: Column(
         children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: TextButton.icon(
+                icon: const Icon(Icons.history, size: 18),
+                label: const Text('Agent history'),
+                onPressed: () => showAgentHistory(context, ref),
+              ),
+            ),
+          ),
           Expanded(
             child: ListView.builder(
               controller: _scroll,
@@ -413,6 +447,143 @@ class _InputBar extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.arrow_upward, size: 20),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Agent history: every persisted crew session (goal, trace, reply,
+/// proposals) — loaded from storage, newest first.
+void showAgentHistory(BuildContext context, WidgetRef ref) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _AgentHistorySheet(),
+  );
+}
+
+class _AgentHistorySheet extends ConsumerWidget {
+  const _AgentHistorySheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessions = ref.watch(agentSessionsProvider);
+    return SafeArea(
+      child: Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Agent history',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('Persisted crew sessions, newest first.',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            Flexible(
+              child: sessions.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Text('$e'),
+                data: (list) => list.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Text('No sessions yet. Run the crew first.',
+                            textAlign: TextAlign.center),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: list.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: 8),
+                        itemBuilder: (context, i) {
+                          final s = list[list.length - 1 - i];
+                          final at = DateTime.tryParse(
+                                  s['at'] as String? ?? '') ??
+                              DateTime.now();
+                          final proposals =
+                              (s['proposals'] as List? ?? [])
+                                  .cast<Map>();
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: TC.surface,
+                              borderRadius:
+                                  BorderRadius.circular(14),
+                              border: Border.all(color: TC.outline),
+                            ),
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.smart_toy,
+                                        size: 14, color: TC.gain),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        s['goal'] as String? ?? '',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleSmall,
+                                        overflow:
+                                            TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      at.toLocal().toString().substring(
+                                          0, 16),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'brain: ${s['brain']} · '
+                                  '${(s['steps'] as List? ?? []).length} steps · '
+                                  '${proposals.length} proposal(s)',
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall,
+                                ),
+                                if ((s['reply'] as String? ?? '')
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(s['reply'] as String,
+                                      maxLines: 4,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                ],
+                                for (final p in proposals)
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '→ ${p['side']} ${p['quantity']} ${p['symbol']} @ ₹${p['price']} · ${p['allowed'] == true ? 'ALLOWED' : 'BLOCKED'}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: p['allowed'] == true
+                                            ? TC.gain
+                                            : TC.loss,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
               ),
             ),
           ],
