@@ -1,8 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required to call the Trader Copilot backend (paper trading API). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Dev builds talk to a plain-HTTP backend on the LAN (uvicorn on port
+         8000). usesCleartextTraffic is fine for paper trading; restrict before
+         any public deployment. -->
     <application
-        android:label="trader_copilot"
+        android:label="Trader Copilot"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
