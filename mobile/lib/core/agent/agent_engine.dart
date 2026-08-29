@@ -21,15 +21,18 @@ import 'llm_client.dart';
 
 class AgentStep {
   AgentStep({required this.agent, required this.tool, required this.detail})
-      : ts = DateTime.now();
+    : ts = DateTime.now();
 
   final String agent; // scanner | analyst | strategist | drafter | system
   final String tool; // scan_market | web_search | ... | thought
   final String detail;
   final DateTime ts;
 
-  Map<String, String> toMap() =>
-      {'agent': agent, 'tool': tool, 'detail': detail};
+  Map<String, String> toMap() => {
+    'agent': agent,
+    'tool': tool,
+    'detail': detail,
+  };
 }
 
 class AgentProposal {
@@ -58,16 +61,16 @@ class AgentProposal {
   bool get allowed => verdict.allowed;
 
   Map<String, dynamic> toMap() => {
-        'symbol': symbol,
-        'side': side.wire,
-        'quantity': quantity,
-        'market_price': marketPrice,
-        'stop_loss': stopLoss,
-        'take_profit': takeProfit,
-        'rationale': rationale,
-        'confidence': confidence,
-        'verdict': verdict.toMap(),
-      };
+    'symbol': symbol,
+    'side': side.wire,
+    'quantity': quantity,
+    'market_price': marketPrice,
+    'stop_loss': stopLoss,
+    'take_profit': takeProfit,
+    'rationale': rationale,
+    'confidence': confidence,
+    'verdict': verdict.toMap(),
+  };
 }
 
 class AgentRunResult {
@@ -88,8 +91,8 @@ class TradingAgent {
     required this.risk,
     LlmClient? llm,
     http.Client? httpClient,
-  })  : llmClient = llm ?? LlmClient(),
-        _http = httpClient ?? http.Client();
+  }) : llmClient = llm ?? LlmClient(),
+       _http = httpClient ?? http.Client();
 
   final LiveCoinbaseMarket market;
   final RiskEngine risk;
@@ -112,14 +115,17 @@ class TradingAgent {
         if (res.reply.isEmpty) {
           res.reply = res.proposals.isEmpty
               ? 'The crew found no setup worth trading right now. '
-                  'Patience is a position.'
+                    'Patience is a position.'
               : 'Proposals are drafted below — the Risk Engine already '
-                  'checked them. Review and approve.';
+                    'checked them. Review and approve.';
         }
         return res;
       } on LlmException catch (e) {
-        res.step('system', 'fallback',
-            'LLM brain unavailable (${e.message}) — using the rule brain.');
+        res.step(
+          'system',
+          'fallback',
+          'LLM brain unavailable (${e.message}) — using the rule brain.',
+        );
       }
     }
     _runRuleBrain(broker, res);
@@ -138,11 +144,14 @@ class TradingAgent {
         final s = snapshot(await market.bars(sym));
         final trendScore = s['trend'] == 'UP' ? 1.0 : -0.5;
         final r = s['rsi'] as double?;
-        final rsiScore = r == null ? 0.0 : (r < 30 ? 1.0 : (r > 70 ? -1.0 : 0.3));
-        final mom =
-            ((s['change_pct'] as num).toDouble() / 5).clamp(-1.5, 1.5);
+        final rsiScore = r == null
+            ? 0.0
+            : (r < 30 ? 1.0 : (r > 70 ? -1.0 : 0.3));
+        final mom = ((s['change_pct'] as num).toDouble() / 5).clamp(-1.5, 1.5);
         rows.add({'symbol': sym, 'score': trendScore + rsiScore + mom, ...s});
-      } catch (_) {/* skip symbol on fetch failure */}
+      } catch (_) {
+        /* skip symbol on fetch failure */
+      }
     }
     rows.sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
     return rows;
@@ -152,8 +161,9 @@ class TradingAgent {
     final bars = await market.bars(symbol);
     final s = snapshot(bars);
     final closes = bars.map((b) => b.close).toList();
-    final recent =
-        closes.length > 14 ? closes.sublist(closes.length - 14) : closes;
+    final recent = closes.length > 14
+        ? closes.sublist(closes.length - 14)
+        : closes;
     return {
       'symbol': symbol.toUpperCase(),
       ...s,
@@ -177,17 +187,20 @@ class TradingAgent {
             'avg': _round2(p.avgPrice),
             'last': _round2(p.currentPrice),
             'unrealized_pnl': _round2(p.unrealizedPnl),
-          }
+          },
       ],
     };
   }
 
   /// Web search via DuckDuckGo Lite (no API key). Compact headlines the
   /// analyst can weigh.
-  Future<List<Map<String, String>>> toolWebSearch(String query,
-      {int max = 6}) async {
+  Future<List<Map<String, String>>> toolWebSearch(
+    String query, {
+    int max = 6,
+  }) async {
     final uri = Uri.parse(
-        'https://lite.duckduckgo.com/lite/?q=${Uri.encodeQueryComponent('$query crypto market news')}');
+      'https://lite.duckduckgo.com/lite/?q=${Uri.encodeQueryComponent('$query crypto market news')}',
+    );
     try {
       final r = await _http
           .get(uri, headers: {'User-Agent': 'Mozilla/5.0 (compatible)'})
@@ -236,14 +249,20 @@ class TradingAgent {
     }
 
     // -- Scanner ---------------------------------------------------------
-    emit('scanner', 'scan_market',
-        'Scoring all ${market.symbols.length} Coinbase products…');
+    emit(
+      'scanner',
+      'scan_market',
+      'Scoring all ${market.symbols.length} Coinbase products…',
+    );
     final scan = await toolScanMarket();
     final top = scan.take(4).toList();
     for (final t in top) {
-      emit('scanner', 'indicators',
-          '${t['symbol']}: ₹${_round2(t['last'] as double)} · RSI ${t['rsi']} · '
-          'trend ${t['trend']} · score ${(t['score'] as double).toStringAsFixed(2)}');
+      emit(
+        'scanner',
+        'indicators',
+        '${t['symbol']}: ₹${_round2(t['last'] as double)} · RSI ${t['rsi']} · '
+            'trend ${t['trend']} · score ${(t['score'] as double).toStringAsFixed(2)}',
+      );
     }
     emit('scanner', 'web_search', 'Checking the news flow…');
     final news = await toolWebSearch('bitcoin ethereum solana market');
@@ -251,7 +270,11 @@ class TradingAgent {
       emit('scanner', 'web_search', n['title'] ?? '');
     }
 
-    final scanCtx = jsonEncode({'goal': goal, 'top_candidates': top, 'headlines': news});
+    final scanCtx = jsonEncode({
+      'goal': goal,
+      'top_candidates': top,
+      'headlines': news,
+    });
 
     // -- Analyst -----------------------------------------------------------
     emit('analyst', 'get_indicators', 'Deep-diving the top candidates…');
@@ -260,13 +283,20 @@ class TradingAgent {
       final sym = c['symbol'] as String;
       final ind = await toolIndicators(sym);
       analyses.add(ind);
-      emit('analyst', 'indicators',
-          '$sym: trend ${ind['trend']}, RSI ${ind['rsi']}, '
-          'MACD hist ${ind['macd_hist']}, ATR ${ind['atr']}');
+      emit(
+        'analyst',
+        'indicators',
+        '$sym: trend ${ind['trend']}, RSI ${ind['rsi']}, '
+            'MACD hist ${ind['macd_hist']}, ATR ${ind['atr']}',
+      );
     }
 
     // -- Strategist ----------------------------------------------------------
-    emit('strategist', 'get_account', 'Balancing decisions against the portfolio…');
+    emit(
+      'strategist',
+      'get_account',
+      'Balancing decisions against the portfolio…',
+    );
     final account = toolAccount(broker);
 
     final system = ChatMessage.system(
@@ -291,25 +321,39 @@ class TradingAgent {
         (LlmClient.extractJson(decRaw)?['decisions'] as List? ?? [])
             .cast<Map<String, dynamic>>();
     for (final d in decisions) {
-      emit('strategist', 'thought',
-          '${d['symbol']}: ${d['side']} (conviction ${d['conviction']}) — ${d['rationale']}');
+      emit(
+        'strategist',
+        'thought',
+        '${d['symbol']}: ${d['side']} (conviction ${d['conviction']}) — ${d['rationale']}',
+      );
     }
 
     // -- Drafter (deterministic sizing + Risk Engine) --------------------------
-    emit('drafter', 'risk_engine', 'Drafting proposals and running risk checks…');
+    emit(
+      'drafter',
+      'risk_engine',
+      'Drafting proposals and running risk checks…',
+    );
     for (final d in decisions) {
       final sym = (d['symbol'] as String? ?? '').toUpperCase();
       final sideStr = (d['side'] as String? ?? 'WAIT').toUpperCase();
       if (sym.isEmpty || sideStr == 'WAIT') continue;
       final side = sideStr == 'SELL' ? Side.sell : Side.buy;
-      final p = await _draftProposalAsync(sym, side, broker,
-          rationale: (d['rationale'] as String?) ?? '',
-          confidence: (d['conviction'] as num?)?.toDouble());
+      final p = await _draftProposalAsync(
+        sym,
+        side,
+        broker,
+        rationale: (d['rationale'] as String?) ?? '',
+        confidence: (d['conviction'] as num?)?.toDouble(),
+      );
       if (p != null) {
         res.proposals.add(p);
-        emit('drafter', 'proposal',
-            '${side.wire} ${p.quantity} $sym @ ₹${_round2(p.marketPrice)} — '
-            'risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}');
+        emit(
+          'drafter',
+          'proposal',
+          '${side.wire} ${p.quantity} $sym @ ₹${_round2(p.marketPrice)} — '
+              'risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}',
+        );
       }
     }
     if (res.proposals.isEmpty && res.reply.isEmpty) {
@@ -339,8 +383,11 @@ class TradingAgent {
     final acct = broker.account;
     double? stop;
     double? target;
-    final a = atr(bars.map((b) => b.high).toList(),
-        bars.map((b) => b.low).toList(), bars.map((b) => b.close).toList());
+    final a = atr(
+      bars.map((b) => b.high).toList(),
+      bars.map((b) => b.low).toList(),
+      bars.map((b) => b.close).toList(),
+    );
     if (a != null && a > 0) {
       stop = price - 2 * a;
       target = price + 3 * a;
@@ -388,51 +435,78 @@ class TradingAgent {
   // ------------------------------------------------------------------ //
 
   Future<void> _runRuleBrain(PaperBroker broker, AgentRunResult res) async {
-    res.step('scanner', 'scan_market',
-        'Scoring all ${market.symbols.length} Coinbase products…');
+    res.step(
+      'scanner',
+      'scan_market',
+      'Scoring all ${market.symbols.length} Coinbase products…',
+    );
     final scan = await toolScanMarket();
     for (final t in scan.take(3)) {
-      res.step('scanner', 'indicators',
-          '${t['symbol']}: ₹${_round2(t['last'] as double)} · RSI ${t['rsi']} · '
-          'trend ${t['trend']} · score ${(t['score'] as double).toStringAsFixed(2)}');
+      res.step(
+        'scanner',
+        'indicators',
+        '${t['symbol']}: ₹${_round2(t['last'] as double)} · RSI ${t['rsi']} · '
+            'trend ${t['trend']} · score ${(t['score'] as double).toStringAsFixed(2)}',
+      );
     }
     if (scan.isEmpty) {
       res.reply = 'Could not reach live market data. Check your internet.';
       return;
     }
 
-    res.step('strategist', 'thought',
-        'Rule brain: follow the top-scoring trend if we do not already hold it.');
+    res.step(
+      'strategist',
+      'thought',
+      'Rule brain: follow the top-scoring trend if we do not already hold it.',
+    );
     final top = scan.first;
     final sym = top['symbol'] as String;
     final rsi = top['rsi'] as double?;
     final held = broker.account.positions[sym];
     if (held != null && (top['trend'] == 'DOWN' || (rsi != null && rsi > 70))) {
-      final p = await _draftProposalAsync(sym, Side.sell, broker,
-          rationale: 'Rule exit: $sym trend ${top['trend']}, RSI ${rsi ?? '-'} — '
-              'protecting gains.');
+      final p = await _draftProposalAsync(
+        sym,
+        Side.sell,
+        broker,
+        rationale:
+            'Rule exit: $sym trend ${top['trend']}, RSI ${rsi ?? '-'} — '
+            'protecting gains.',
+      );
       if (p != null) {
         res.proposals.add(p);
-        res.step('drafter', 'proposal',
-            'SELL ${p.quantity} $sym — risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}');
+        res.step(
+          'drafter',
+          'proposal',
+          'SELL ${p.quantity} $sym — risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}',
+        );
       }
-    } else if (held == null && top['trend'] == 'UP' && (rsi == null || rsi < 70)) {
-      final p = await _draftProposalAsync(sym, Side.buy, broker,
-          rationale: 'Rule entry: $sym is the top-scoring product '
-              '(trend UP, RSI ${rsi ?? '-'}, '
-              'score ${(top['score'] as double).toStringAsFixed(2)}).');
+    } else if (held == null &&
+        top['trend'] == 'UP' &&
+        (rsi == null || rsi < 70)) {
+      final p = await _draftProposalAsync(
+        sym,
+        Side.buy,
+        broker,
+        rationale:
+            'Rule entry: $sym is the top-scoring product '
+            '(trend UP, RSI ${rsi ?? '-'}, '
+            'score ${(top['score'] as double).toStringAsFixed(2)}).',
+      );
       if (p != null) {
         res.proposals.add(p);
-        res.step('drafter', 'proposal',
-            'BUY ${p.quantity} $sym @ ₹${_round2(p.marketPrice)} — '
-            'risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}');
+        res.step(
+          'drafter',
+          'proposal',
+          'BUY ${p.quantity} $sym @ ₹${_round2(p.marketPrice)} — '
+              'risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}',
+        );
       }
     }
     res.reply = res.proposals.isEmpty
         ? 'Rule brain: no entry met the filters (need UP trend + RSI<70, '
-            'or an exit trigger on a held position).'
+              'or an exit trigger on a held position).'
         : 'Rule brain drafted ${res.proposals.length} proposal(s) — '
-            'review and approve below.';
+              'review and approve below.';
   }
 }
 

@@ -58,8 +58,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
     if (sym.isEmpty) return;
     setState(() => _error = null);
     try {
-      final price =
-          await ref.read(tradingServiceProvider).market.last(sym);
+      final price = await ref.read(tradingServiceProvider).market.last(sym);
       setState(() => _livePrice = price);
     } catch (e) {
       setState(() {
@@ -117,28 +116,38 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
     final mode = ref.read(tradingModeProvider);
     setState(() => _executing = true);
     try {
-      final exec =
-          await ref.read(tradingServiceProvider).execute(proposal, mode);
+      final exec = await ref
+          .read(tradingServiceProvider)
+          .execute(proposal, mode);
       if (!mounted) return;
       if (exec.executed) {
-        ref.read(journalProvider.notifier).add(ExecutedTrade(
-              symbol: proposal.symbol,
-              side: proposal.side,
-              quantity: proposal.quantity,
-              filledPrice: exec.fillPrice ?? proposal.marketPrice,
-              at: DateTime.now(),
-            ));
+        ref
+            .read(journalProvider.notifier)
+            .add(
+              ExecutedTrade(
+                symbol: proposal.symbol,
+                side: proposal.side,
+                quantity: proposal.quantity,
+                filledPrice: exec.fillPrice ?? proposal.marketPrice,
+                at: DateTime.now(),
+              ),
+            );
         ref.invalidate(accountProvider);
         ref.invalidate(historyProvider);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${proposal.side.wire} ${proposal.quantity} '
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${proposal.side.wire} ${proposal.quantity} '
               '${proposal.symbol} filled at '
-              '₹${(exec.fillPrice ?? proposal.marketPrice).toStringAsFixed(2)}'),
-        ));
+              '₹${(exec.fillPrice ?? proposal.marketPrice).toStringAsFixed(2)}',
+            ),
+          ),
+        );
         setState(() => _proposal = null);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')),
+        );
       }
     } catch (e) {
       ScaffoldMessenger.of(context)
@@ -191,27 +200,30 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
             onSelectionChanged: (s) => setState(() => _side = s.first),
           ),
           const SizedBox(height: 14),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                controller: _symbol,
-                decoration: const InputDecoration(
-                    labelText: 'Symbol (e.g. BTC, ETH, SOL)'),
-                textCapitalization: TextCapitalization.characters,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _symbol,
+                  decoration: const InputDecoration(
+                    labelText: 'Symbol (e.g. BTC, ETH, SOL)',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              height: 52,
-              child: OutlinedButton.icon(
-                onPressed: _fetchPrice,
-                icon: const Icon(Icons.bolt, size: 18),
-                label: const Text('Live price'),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: _fetchPrice,
+                  icon: const Icon(Icons.bolt, size: 18),
+                  label: const Text('Live price'),
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           if (_livePrice != null)
             Padding(
               padding: const EdgeInsets.only(top: 10),
@@ -222,37 +234,46 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               ),
             ),
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                controller: _quantity,
-                decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number,
-                validator: (v) =>
-                    (double.tryParse(v ?? '') ?? 0) > 0 ? 'Must be > 0' : null,
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _quantity,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                  validator: (v) => (double.tryParse(v ?? '') ?? 0) > 0
+                      ? 'Must be > 0'
+                      : null,
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                controller: _stopLoss,
-                decoration: const InputDecoration(
-                    labelText: 'Stop loss', prefixText: '₹ '),
-                keyboardType: TextInputType.number,
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _stopLoss,
+                  decoration: const InputDecoration(
+                    labelText: 'Stop loss',
+                    prefixText: '₹ ',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                controller: _takeProfit,
-                decoration: const InputDecoration(
-                    labelText: 'Target', prefixText: '₹ '),
-                keyboardType: TextInputType.number,
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _takeProfit,
+                  decoration: const InputDecoration(
+                    labelText: 'Target',
+                    prefixText: '₹ ',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
@@ -266,11 +287,17 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('AI confidence',
-                        style: Theme.of(context).textTheme.titleSmall),
-                    Text('${_confidence.round()}%',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: TC.gain, fontWeight: FontWeight.w800)),
+                    Text(
+                      'AI confidence',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    Text(
+                      '${_confidence.round()}%',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: TC.gain,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ],
                 ),
                 Slider(
@@ -288,9 +315,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                     Expanded(
                       child: Text(
                         'An assessment, not a probability of success.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
+                        style: Theme.of(context).textTheme.bodySmall
                             ?.copyWith(color: TC.warn),
                       ),
                     ),
@@ -308,7 +333,8 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.shield_outlined),
               label: Text(_evaluating ? 'Checking risk…' : 'Run Risk Engine'),
             ),
@@ -321,8 +347,10 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                 color: TC.loss.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(_error!,
-                  style: const TextStyle(color: TC.loss, fontSize: 13)),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: TC.loss, fontSize: 13),
+              ),
             ),
           ],
           if (_proposal != null)
@@ -380,9 +408,7 @@ class _Pipeline extends StatelessWidget {
               child: Container(
                 height: 2,
                 margin: const EdgeInsets.symmetric(horizontal: 4),
-                color: i <= step
-                    ? TC.gain.withValues(alpha: 0.5)
-                    : TC.outline,
+                color: i <= step ? TC.gain.withValues(alpha: 0.5) : TC.outline,
               ),
             ),
           Tooltip(
@@ -431,12 +457,17 @@ class _AutopilotCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.auto_mode,
-                    size: 18, color: ap.enabled ? TC.gain : TC.onBgDim),
+                Icon(
+                  Icons.auto_mode,
+                  size: 18,
+                  color: ap.enabled ? TC.gain : TC.onBgDim,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Autopilot',
-                      style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    'Autopilot',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 Switch(
                   value: ap.enabled,
@@ -452,9 +483,9 @@ class _AutopilotCard extends ConsumerWidget {
             Text(
               ap.enabled
                   ? (ap.running
-                      ? 'Crew is working on your goal…'
-                      : 'Watching the market every ${ap.intervalMinutes} min.'
-                          '${ap.lastRun == null ? '' : ' Last run ${ap.lastRun!.toLocal().toString().substring(11, 16)}.'}')
+                        ? 'Crew is working on your goal…'
+                        : 'Watching the market every ${ap.intervalMinutes} min.'
+                              '${ap.lastRun == null ? '' : ' Last run ${ap.lastRun!.toLocal().toString().substring(11, 16)}.'}')
                   : 'Off — the crew only runs when you ask.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -468,9 +499,8 @@ class _AutopilotCard extends ConsumerWidget {
                     ChoiceChip(
                       label: Text(m >= 60 ? '1h' : '$m m'),
                       selected: ap.intervalMinutes == m,
-                      onSelected: (_) => ref
-                          .read(autopilotProvider.notifier)
-                          .setInterval(m),
+                      onSelected: (_) =>
+                          ref.read(autopilotProvider.notifier).setInterval(m),
                       visualDensity: VisualDensity.compact,
                     ),
                     const SizedBox(width: 6),
@@ -479,8 +509,7 @@ class _AutopilotCard extends ConsumerWidget {
                   TextButton(
                     onPressed: ap.running
                         ? null
-                        : () =>
-                            ref.read(autopilotProvider.notifier).runOnce(),
+                        : () => ref.read(autopilotProvider.notifier).runOnce(),
                     child: const Text('Run now'),
                   ),
                 ],
@@ -512,28 +541,37 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
       final exec = await ref.read(tradingServiceProvider).execute(p, mode);
       if (!mounted) return;
       if (exec.executed) {
-        ref.read(journalProvider.notifier).add(ExecutedTrade(
-              symbol: p.symbol,
-              side: p.side,
-              quantity: p.quantity,
-              filledPrice: exec.fillPrice ?? p.marketPrice,
-              at: DateTime.now(),
-            ));
+        ref
+            .read(journalProvider.notifier)
+            .add(
+              ExecutedTrade(
+                symbol: p.symbol,
+                side: p.side,
+                quantity: p.quantity,
+                filledPrice: exec.fillPrice ?? p.marketPrice,
+                at: DateTime.now(),
+              ),
+            );
         ref.invalidate(accountProvider);
         ref.invalidate(historyProvider);
         ref.read(pendingProposalsProvider.notifier).remove(p);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${p.side.wire} ${p.quantity} ${p.symbol} '
-              'filled at ₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${p.side.wire} ${p.quantity} ${p.symbol} '
+              'filled at ₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}',
+            ),
+          ),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+          SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Execution failed: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Execution failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _busyId = null);
@@ -549,8 +587,10 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 18),
-        SectionHeader('Autopilot queue',
-            trailing: '${queue.length} awaiting you'),
+        SectionHeader(
+          'Autopilot queue',
+          trailing: '${queue.length} awaiting you',
+        ),
         for (final p in queue)
           ProposalCard(
             proposal: TradeProposal(
@@ -576,4 +616,3 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
     );
   }
 }
-

@@ -45,11 +45,11 @@ class Position {
   double get unrealizedPnl => (lastPrice - avgPrice) * quantity;
 
   factory Position.fromJson(String symbol, Map<String, dynamic> j) => Position(
-        symbol: symbol,
-        quantity: (j['qty'] as num).toDouble(),
-        avgPrice: (j['avg'] as num).toDouble(),
-        lastPrice: (j['last'] as num).toDouble(),
-      );
+    symbol: symbol,
+    quantity: (j['qty'] as num).toDouble(),
+    avgPrice: (j['avg'] as num).toDouble(),
+    lastPrice: (j['last'] as num).toDouble(),
+  );
 }
 
 class AccountState {
@@ -74,16 +74,16 @@ class AccountState {
       positions.values.fold(0.0, (s, p) => s + p.marketValue);
 
   factory AccountState.fromJson(Map<String, dynamic> j) => AccountState(
-        accountId: j['account_id'] as String,
-        mode: AccountModeX.fromWire(j['mode'] as String? ?? 'PAPER'),
-        cash: (j['cash'] as num).toDouble(),
-        equity: (j['equity'] as num).toDouble(),
-        dayStart: (j['day_start_equity'] as num?)?.toDouble(),
-        positions: {
-          for (final e in (j['positions'] as Map<String, dynamic>).entries)
-            e.key: Position.fromJson(e.key, e.value),
-        },
-      );
+    accountId: j['account_id'] as String,
+    mode: AccountModeX.fromWire(j['mode'] as String? ?? 'PAPER'),
+    cash: (j['cash'] as num).toDouble(),
+    equity: (j['equity'] as num).toDouble(),
+    dayStart: (j['day_start_equity'] as num?)?.toDouble(),
+    positions: {
+      for (final e in (j['positions'] as Map<String, dynamic>).entries)
+        e.key: Position.fromJson(e.key, e.value),
+    },
+  );
 }
 
 /// The ONLY output surface an AI model is allowed to produce.
@@ -157,12 +157,12 @@ class MarketRow {
   final String trend;
 
   factory MarketRow.fromJson(Map<String, dynamic> j) => MarketRow(
-        symbol: j['symbol'] as String,
-        last: (j['last'] as num).toDouble(),
-        changePct: (j['change_pct'] as num).toDouble(),
-        rsi: (j['rsi'] as num?)?.toDouble(),
-        trend: j['trend'] as String,
-      );
+    symbol: j['symbol'] as String,
+    last: (j['last'] as num).toDouble(),
+    changePct: (j['change_pct'] as num).toDouble(),
+    rsi: (j['rsi'] as num?)?.toDouble(),
+    trend: j['trend'] as String,
+  );
 }
 
 /// One point of the account equity curve.
@@ -173,9 +173,9 @@ class EquityPoint {
   final double equity;
 
   factory EquityPoint.fromJson(Map<String, dynamic> j) => EquityPoint(
-        t: DateTime.parse(j['t'] as String),
-        equity: (j['equity'] as num).toDouble(),
-      );
+    t: DateTime.parse(j['t'] as String),
+    equity: (j['equity'] as num).toDouble(),
+  );
 }
 
 /// One OHLCV bar (candlestick). For the crypto market these are LIVE
@@ -229,19 +229,17 @@ class CandleSeries {
   final String source;
   final List<Candle> bars;
 
-  double get minLow =>
-      bars.map((b) => b.low).reduce((a, b) => a < b ? a : b);
-  double get maxHigh =>
-      bars.map((b) => b.high).reduce((a, b) => a > b ? a : b);
+  double get minLow => bars.map((b) => b.low).reduce((a, b) => a < b ? a : b);
+  double get maxHigh => bars.map((b) => b.high).reduce((a, b) => a > b ? a : b);
 
   factory CandleSeries.fromJson(Map<String, dynamic> j) => CandleSeries(
-        symbol: j['symbol'] as String,
-        market: (j['market'] as String? ?? 'stocks') == 'crypto'
-            ? Market.crypto
-            : Market.stocks,
-        source: j['source'] as String? ?? 'unknown',
-        bars: (j['bars'] as List? ?? [])
-            .map((b) => Candle.fromJson(b as Map<String, dynamic>))
-            .toList(),
-      );
+    symbol: j['symbol'] as String,
+    market: (j['market'] as String? ?? 'stocks') == 'crypto'
+        ? Market.crypto
+        : Market.stocks,
+    source: j['source'] as String? ?? 'unknown',
+    bars: (j['bars'] as List? ?? [])
+        .map((b) => Candle.fromJson(b as Map<String, dynamic>))
+        .toList(),
+  );
 }

@@ -40,29 +40,37 @@ void main() {
   });
 
   testWidgets('PnlChip colors gains green and losses red', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(
-        body: Column(children: [PnlChip(500), PnlChip(-250)]),
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Column(children: [PnlChip(500), PnlChip(-250)])),
       ),
-    ));
+    );
     expect(find.text('+₹500'), findsOneWidget);
     expect(find.text('-₹250'), findsOneWidget);
   });
 
   testWidgets('StatTile renders label and value', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(
-        body: StatTile(label: 'Cash', value: '₹10,00,000', icon: Icons.wallet),
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: StatTile(
+            label: 'Cash',
+            value: '₹10,00,000',
+            icon: Icons.wallet,
+          ),
+        ),
       ),
-    ));
+    );
     expect(find.text('Cash'), findsOneWidget);
     expect(find.text('₹10,00,000'), findsOneWidget);
   });
 
   testWidgets('Sparkline paints with a flat series too', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(body: Sparkline(values: [5, 5, 5, 5])),
-    ));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Sparkline(values: [5, 5, 5, 5])),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(CustomPaint), findsWidgets);
     expect(TC.gain, const Color(0xFF34D399)); // design token sanity

@@ -19,7 +19,14 @@ import 'package:http/http.dart' as http;
 import '../models.dart';
 
 const coinbaseProducts = [
-  'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'LINK', 'AVAX'
+  'BTC',
+  'ETH',
+  'SOL',
+  'XRP',
+  'ADA',
+  'DOGE',
+  'LINK',
+  'AVAX',
 ];
 
 class CoinbaseException implements Exception {
@@ -34,7 +41,8 @@ String _b64url(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
 /// Decodes a CDP private key. Returns the raw 32-byte Ed25519 seed for the
 /// common 64-byte format (seed||public), or DER bytes for EC keys.
 ({List<int> keyBytes, String alg, bool isEd25519}) decodePrivateKey(
-    String b64Key) {
+  String b64Key,
+) {
   final der = base64.decode(b64Key.trim());
   if (der.length == 64) {
     return (keyBytes: der.sublist(0, 32), alg: 'EdDSA', isEd25519: true);
@@ -43,13 +51,14 @@ String _b64url(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
     return (keyBytes: der, alg: 'ES256', isEd25519: false);
   }
   throw CoinbaseException(
-      'Unsupported Coinbase key format (${der.length} bytes). '
-      'Use a CDP API key JSON.');
+    'Unsupported Coinbase key format (${der.length} bytes). '
+    'Use a CDP API key JSON.',
+  );
 }
 
 class CoinbaseClient {
   CoinbaseClient({this.apiKey, this.privateKey, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   final http.Client _client;
   String? apiKey;
@@ -67,8 +76,10 @@ class CoinbaseClient {
     }
     final key = decodePrivateKey(privateKey!);
     if (!key.isEd25519) {
-      throw CoinbaseException('ES256 (EC) keys are not supported yet — '
-          'create an Ed25519 CDP key in the Coinbase portal.');
+      throw CoinbaseException(
+        'ES256 (EC) keys are not supported yet — '
+        'create an Ed25519 CDP key in the Coinbase portal.',
+      );
     }
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final header = {
@@ -100,8 +111,9 @@ class CoinbaseClient {
     Map<String, String>? query,
     Map<String, dynamic>? body,
   }) async {
-    final uri = Uri.parse('$_base$path').replace(
-        queryParameters: query == null || query.isEmpty ? null : query);
+    final uri = Uri.parse(
+      '$_base$path',
+    ).replace(queryParameters: query == null || query.isEmpty ? null : query);
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (auth) {
       headers['Authorization'] = 'Bearer ${await _jwt(method, path)}';
@@ -111,7 +123,9 @@ class CoinbaseClient {
     if (body != null) {
       req.body = jsonEncode(body);
     }
-    final streamed = await _client.send(req).timeout(const Duration(seconds: 20));
+    final streamed = await _client
+        .send(req)
+        .timeout(const Duration(seconds: 20));
     final r = await http.Response.fromStream(streamed);
     Map<String, dynamic> decoded;
     try {
@@ -120,8 +134,10 @@ class CoinbaseClient {
       decoded = {};
     }
     if (r.statusCode >= 400) {
-      throw CoinbaseException('Coinbase $method $path -> ${r.statusCode}: '
-          '${r.body.length > 200 ? r.body.substring(0, 200) : r.body}');
+      throw CoinbaseException(
+        'Coinbase $method $path -> ${r.statusCode}: '
+        '${r.body.length > 200 ? r.body.substring(0, 200) : r.body}',
+      );
     }
     return decoded;
   }
@@ -132,24 +148,32 @@ class CoinbaseClient {
     return double.parse(body['price'] as String);
   }
 
-  Future<List<Map<String, dynamic>>> getCandles(String productId,
-      {String granularity = 'ONE_DAY', int limit = 350}) async {
+  Future<List<Map<String, dynamic>>> getCandles(
+    String productId, {
+    String granularity = 'ONE_DAY',
+    int limit = 350,
+  }) async {
     final body = await _request(
       'GET',
       '$_api/market/products/$productId/candles',
       query: {'granularity': granularity, 'limit': '$limit'},
     );
-    final candles =
-        (body['candles'] as List? ?? []).cast<Map<String, dynamic>>();
+    final candles = (body['candles'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
     candles.sort(
-        (a, b) => (a['start'] as String).compareTo(b['start'] as String));
+      (a, b) => (a['start'] as String).compareTo(b['start'] as String),
+    );
     return candles;
   }
 
   // -- authenticated surface -------------------------------------------------
   Future<List<Map<String, dynamic>>> getAccounts() async {
-    final body = await _request('GET', '$_api/accounts',
-        auth: true, query: {'limit': '250'});
+    final body = await _request(
+      'GET',
+      '$_api/accounts',
+      auth: true,
+      query: {'limit': '250'},
+    );
     return (body['accounts'] as List? ?? []).cast<Map<String, dynamic>>();
   }
 
@@ -175,8 +199,8 @@ class CoinbaseClient {
 /// surface the agent and indicators use. TTL caches respect rate limits.
 class LiveCoinbaseMarket {
   LiveCoinbaseMarket({CoinbaseClient? client, List<String>? products})
-      : client = client ?? CoinbaseClient(),
-        _products = products ?? coinbaseProducts;
+    : client = client ?? CoinbaseClient(),
+      _products = products ?? coinbaseProducts;
 
   final CoinbaseClient client;
   final List<String> _products;
@@ -197,17 +221,25 @@ class LiveCoinbaseMarket {
       return cached.$1;
     }
     final sources = <Future<double> Function()>[
-      () async => (((await _getJson('https://open.er-api.com/v6/latest/USD'))
-              ['rates'] as Map)['INR'] as num)
-          .toDouble(),
-      () async => (((await _getJson(
-                  'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json'))
-              ['usd'] as Map)['inr'] as num)
-          .toDouble(),
-      () async => (((await _getJson(
-                  'https://api.frankfurter.dev/v1/latest?base=USD&symbols=INR'))
-              ['rates'] as Map)['INR'] as num)
-          .toDouble(),
+      () async =>
+          (((await _getJson('https://open.er-api.com/v6/latest/USD'))['rates']
+                      as Map)['INR']
+                  as num)
+              .toDouble(),
+      () async =>
+          (((await _getJson(
+                        'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.min.json',
+                      ))['usd']
+                      as Map)['inr']
+                  as num)
+              .toDouble(),
+      () async =>
+          (((await _getJson(
+                        'https://api.frankfurter.dev/v1/latest?base=USD&symbols=INR',
+                      ))['rates']
+                      as Map)['INR']
+                  as num)
+              .toDouble(),
     ];
     Object? lastErr;
     for (final fetch in sources) {
@@ -224,8 +256,9 @@ class LiveCoinbaseMarket {
   }
 
   Future<Map<String, dynamic>> _getJson(String url) async {
-    final r =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+    final r = await http
+        .get(Uri.parse(url))
+        .timeout(const Duration(seconds: 10));
     if (r.statusCode >= 400) {
       throw CoinbaseException('$url -> ${r.statusCode}');
     }
@@ -235,7 +268,10 @@ class LiveCoinbaseMarket {
   /// LIVE OHLCV bars for [symbol], INR-converted. [granularity] supports
   /// ONE_HOUR / SIX_HOUR / ONE_DAY (Coinbase brokerages API). Cached per
   /// (symbol, granularity): intraday 2 min, daily 5 min.
-  Future<List<Candle>> bars(String symbol, {String granularity = 'ONE_DAY'}) async {
+  Future<List<Candle>> bars(
+    String symbol, {
+    String granularity = 'ONE_DAY',
+  }) async {
     final sym = symbol.trim().toUpperCase();
     final key = '$sym:$granularity';
     final cached = _bars[key];
@@ -247,14 +283,18 @@ class LiveCoinbaseMarket {
       return cached;
     }
     try {
-      final candles = await client.getCandles(product(sym),
-          granularity: granularity, limit: 120);
+      final candles = await client.getCandles(
+        product(sym),
+        granularity: granularity,
+        limit: 120,
+      );
       final fx = await usdInr();
       final list = [
         for (final c in candles)
           Candle(
             time: DateTime.fromMillisecondsSinceEpoch(
-                int.parse(c['start'] as String) * 1000),
+              int.parse(c['start'] as String) * 1000,
+            ),
             open: double.parse(c['open'] as String) * fx,
             high: double.parse(c['high'] as String) * fx,
             low: double.parse(c['low'] as String) * fx,

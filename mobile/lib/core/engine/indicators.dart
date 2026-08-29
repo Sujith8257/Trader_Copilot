@@ -77,8 +77,12 @@ class MacdResult {
   final double? hist;
 }
 
-MacdResult macd(List<double> values,
-    {int fast = 12, int slow = 26, int signal = 9}) {
+MacdResult macd(
+  List<double> values, {
+  int fast = 12,
+  int slow = 26,
+  int signal = 9,
+}) {
   final ef = ema(values, fast), es = ema(values, slow);
   final line = List<double?>.generate(values.length, (i) {
     final a = ef[i], b = es[i];
@@ -112,8 +116,11 @@ class BollingerResult {
   final double? mid, upper, lower;
 }
 
-BollingerResult bollinger(List<double> values,
-    [int period = 20, double k = 2.0]) {
+BollingerResult bollinger(
+  List<double> values, [
+  int period = 20,
+  double k = 2.0,
+]) {
   if (values.length < period) {
     return const BollingerResult();
   }
@@ -138,14 +145,23 @@ double _sqrt(double x) {
 }
 
 /// Average True Range (Wilder smoothing). Null when not enough data.
-double? atr(List<double> highs, List<double> lows, List<double> closes,
-    [int period = 14]) {
+double? atr(
+  List<double> highs,
+  List<double> lows,
+  List<double> closes, [
+  int period = 14,
+]) {
   final n = closes.length;
   if (n < period + 1) return null;
   final trs = <double>[];
   for (var i = 1; i < n; i++) {
-    trs.add(_max3(highs[i] - lows[i], (highs[i] - closes[i - 1]).abs(),
-        (lows[i] - closes[i - 1]).abs()));
+    trs.add(
+      _max3(
+        highs[i] - lows[i],
+        (highs[i] - closes[i - 1]).abs(),
+        (lows[i] - closes[i - 1]).abs(),
+      ),
+    );
   }
   var a = 0.0;
   for (var i = 0; i < period; i++) {

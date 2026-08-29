@@ -18,7 +18,8 @@ class LockGate extends ConsumerStatefulWidget {
   ConsumerState<LockGate> createState() => _LockGateState();
 }
 
-class _LockGateState extends ConsumerState<LockGate> with WidgetsBindingObserver {
+class _LockGateState extends ConsumerState<LockGate>
+    with WidgetsBindingObserver {
   bool? _lockEnabled; // null = still loading prefs
   bool _unlocked = false;
   bool _checking = false;
@@ -92,15 +93,18 @@ class _LockGateState extends ConsumerState<LockGate> with WidgetsBindingObserver
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(color: TC.outline),
               ),
-              child:
-                  const Icon(Icons.lock_outline, size: 34, color: TC.gain),
+              child: const Icon(Icons.lock_outline, size: 34, color: TC.gain),
             ),
             const SizedBox(height: 20),
-            Text('Trader Copilot is locked',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Trader Copilot is locked',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 6),
-            Text('Authenticate with your fingerprint or face.',
-                style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              'Authenticate with your fingerprint or face.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 24),
             FilledButton.icon(
               icon: const Icon(Icons.fingerprint),

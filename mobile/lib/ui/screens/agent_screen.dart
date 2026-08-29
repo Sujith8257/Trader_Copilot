@@ -20,13 +20,9 @@ class AgentScreen extends ConsumerStatefulWidget {
 }
 
 class _Entry {
-  _Entry.user(this.text)
-      : isUser = true,
-        result = null;
+  _Entry.user(this.text) : isUser = true, result = null;
 
-  _Entry.result(this.result)
-      : isUser = false,
-        text = '';
+  _Entry.result(this.result) : isUser = false, text = '';
 
   final bool isUser;
   final String text;
@@ -42,7 +38,8 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
   static AgentRunResult _greeting() {
     final r = AgentRunResult(goal: 'hello');
     r.brain = 'rule';
-    r.reply = "Hi! I'm your agentic trading crew running fully on this phone "
+    r.reply =
+        "Hi! I'm your agentic trading crew running fully on this phone "
         'over LIVE Coinbase data. I scan the market, read the news, check '
         'indicators and your account, and draft Risk-Engine-checked '
         'proposals. Try "Scan the market" or set a goal like "grow the '
@@ -75,7 +72,9 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     });
     _scrollDown();
     try {
-      final result = await ref.read(tradingServiceProvider).runCrew(
+      final result = await ref
+          .read(tradingServiceProvider)
+          .runCrew(
             msg,
             onStep: (_) {
               if (mounted) setState(() {}); // live tool trace
@@ -112,24 +111,34 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final exec = await ref.read(tradingServiceProvider).execute(p, mode);
     if (!exec.executed) {
-      messenger.showSnackBar(SnackBar(
-          content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')),
+      );
       return;
     }
     if (!mounted) return;
-    ref.read(journalProvider.notifier).add(ExecutedTrade(
-          symbol: p.symbol,
-          side: p.side,
-          quantity: p.quantity,
-          filledPrice: exec.fillPrice ?? p.marketPrice,
-          at: DateTime.now(),
-        ));
+    ref
+        .read(journalProvider.notifier)
+        .add(
+          ExecutedTrade(
+            symbol: p.symbol,
+            side: p.side,
+            quantity: p.quantity,
+            filledPrice: exec.fillPrice ?? p.marketPrice,
+            at: DateTime.now(),
+          ),
+        );
     ref.invalidate(accountProvider);
     ref.invalidate(historyProvider);
-    messenger.showSnackBar(SnackBar(
-        content: Text('${p.side.wire} ${p.quantity} ${p.symbol} filled on '
-            '${mode == AccountMode.live ? "LIVE Coinbase" : "paper"} at '
-            '₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}')));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${p.side.wire} ${p.quantity} ${p.symbol} filled on '
+          '${mode == AccountMode.live ? "LIVE Coinbase" : "paper"} at '
+          '₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}',
+        ),
+      ),
+    );
     setState(() {});
   }
 
@@ -155,7 +164,10 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
             ),
           ),
           _SuggestionBar(
-              suggestions: _suggestions, enabled: !_sending, onTap: _send),
+            suggestions: _suggestions,
+            enabled: !_sending,
+            onTap: _send,
+          ),
           _InputBar(
             controller: _controller,
             enabled: !_sending,
@@ -179,8 +191,9 @@ class _UserBubble extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.78,
+        ),
         decoration: BoxDecoration(
           color: TC.info.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(16)
@@ -216,8 +229,9 @@ class _AgentCard extends ConsumerWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.88),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.88,
+        ),
         decoration: BoxDecoration(
           color: TC.surface,
           borderRadius: BorderRadius.circular(16)
@@ -231,11 +245,14 @@ class _AgentCard extends ConsumerWidget {
               children: [
                 const Icon(Icons.smart_toy, size: 15, color: TC.gain),
                 const SizedBox(width: 6),
-                Text('crew · ${result.brain}',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: TC.onBgDim,
-                        fontWeight: FontWeight.w600)),
+                Text(
+                  'crew · ${result.brain}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: TC.onBgDim,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -247,24 +264,32 @@ class _AgentCard extends ConsumerWidget {
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(top: 1),
-                      child: Builder(builder: (context) {
-                        final badge = _agentBadge[s.agent] ??
-                            (Icons.circle, TC.onBgDim);
-                        return Icon(badge.$1, size: 13, color: badge.$2);
-                      }),
+                      child: Builder(
+                        builder: (context) {
+                          final badge =
+                              _agentBadge[s.agent] ??
+                              (Icons.circle, TC.onBgDim);
+                          return Icon(badge.$1, size: 13, color: badge.$2);
+                        },
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(s.tool,
-                              style: const TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: TC.onBgDim)),
-                          Text(s.detail,
-                              style: Theme.of(context).textTheme.bodySmall),
+                          Text(
+                            s.tool,
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: TC.onBgDim,
+                            ),
+                          ),
+                          Text(
+                            s.detail,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ],
                       ),
                     ),
@@ -369,8 +394,9 @@ class _InputBar extends StatelessWidget {
                 enabled: enabled,
                 textInputAction: TextInputAction.send,
                 onSubmitted: onSend,
-                decoration:
-                    const InputDecoration(hintText: 'Give the crew a goal…'),
+                decoration: const InputDecoration(
+                  hintText: 'Give the crew a goal…',
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -384,7 +410,8 @@ class _InputBar extends StatelessWidget {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.arrow_upward, size: 20),
               ),
             ),

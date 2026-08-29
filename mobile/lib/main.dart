@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,9 +43,8 @@ class BootGate extends ConsumerWidget {
     return seen.when(
       loading: () => const _Splash(),
       error: (_, _) => const LockGate(child: HomeShell()),
-      data: (seen) => seen
-          ? const LockGate(child: HomeShell())
-          : const OnboardingScreen(),
+      data: (seen) =>
+          seen ? const LockGate(child: HomeShell()) : const OnboardingScreen(),
     );
   }
 }
@@ -86,8 +83,6 @@ class HomeShell extends ConsumerStatefulWidget {
 }
 
 class _HomeShellState extends ConsumerState<HomeShell> {
-  StreamSubscription? _alertSub;
-
   @override
   void initState() {
     super.initState();
@@ -103,18 +98,18 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       final msg = next.length == 1
           ? '🔔 ${next.first.describe()} triggered!'
           : '🔔 ${next.length} alerts triggered!';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 4),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+      );
       ref.read(unreadAlertsProvider.notifier).clear();
     });
   }
 
   @override
   void dispose() {
-    _alertSub?.cancel();
-    ref.read(autoRefreshProvider.notifier).stop();
+    // autoRefreshProvider cancels its own timer via ref.onDispose when the
+    // provider is released. Calling ref.read here is unsafe (the element is
+    // already unmounted in Riverpod 3), so we only cancel the local streams.
     super.dispose();
   }
 
@@ -128,67 +123,69 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       JournalScreen(),
     ];
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final wide = constraints.maxWidth >= 900;
-      void setTab(int i) => ref.read(tabIndexProvider.notifier).set(i);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 900;
+        void setTab(int i) => ref.read(tabIndexProvider.notifier).set(i);
 
-      final body = wide
-          ? Row(
+        final body = wide
+            ? Row(
+                children: [
+                  NavigationRail(
+                    selectedIndex: index,
+                    onDestinationSelected: setTab,
+                    labelType: NavigationRailLabelType.all,
+                    leading: const _BrandBadge(size: 40),
+                    destinations: [
+                      for (final d in _dests)
+                        NavigationRailDestination(
+                          icon: Icon(d.icon),
+                          selectedIcon: Icon(d.selectedIcon),
+                          label: Text(d.label),
+                        ),
+                    ],
+                  ),
+                  const VerticalDivider(width: 1, color: TC.outline),
+                  Expanded(child: pages[index]),
+                ],
+              )
+            : pages[index];
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Row(
               children: [
-                NavigationRail(
+                const _BrandBadge(size: 34),
+                const SizedBox(width: 10),
+                const Flexible(
+                  child: Text(
+                    'Trader Copilot',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+            actions: const [AlertBell(), _SettingsButton(), ModeToggle()],
+          ),
+          body: body,
+          bottomNavigationBar: wide
+              ? null
+              : NavigationBar(
                   selectedIndex: index,
                   onDestinationSelected: setTab,
-                  labelType: NavigationRailLabelType.all,
-                  leading: const _BrandBadge(size: 40),
                   destinations: [
                     for (final d in _dests)
-                      NavigationRailDestination(
+                      NavigationDestination(
                         icon: Icon(d.icon),
                         selectedIcon: Icon(d.selectedIcon),
-                        label: Text(d.label),
+                        label: d.label,
                       ),
                   ],
                 ),
-                const VerticalDivider(width: 1, color: TC.outline),
-                Expanded(child: pages[index]),
-              ],
-            )
-          : pages[index];
-
-      return Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              const _BrandBadge(size: 34),
-              const SizedBox(width: 10),
-              const Flexible(
-                child: Text(
-                  'Trader Copilot',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-              ),
-            ],
-          ),
-          actions: const [AlertBell(), _SettingsButton(), ModeToggle()],
-        ),
-        body: body,
-        bottomNavigationBar: wide
-            ? null
-            : NavigationBar(
-                selectedIndex: index,
-                onDestinationSelected: setTab,
-                destinations: [
-                  for (final d in _dests)
-                    NavigationDestination(
-                      icon: Icon(d.icon),
-                      selectedIcon: Icon(d.selectedIcon),
-                      label: d.label,
-                    ),
-                ],
-              ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -224,9 +221,9 @@ class _SettingsButton extends StatelessWidget {
     return IconButton(
       tooltip: 'Settings',
       icon: const Icon(Icons.tune, size: 20),
-      onPressed: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-      ),
+      onPressed: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
     );
   }
 }
@@ -277,8 +274,10 @@ class ModeToggle extends ConsumerWidget {
 
   void _showModeSheet(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(tradingModeProvider);
-    final coinbaseReady =
-        ref.watch(tradingServiceProvider).settings.coinbaseConfigured;
+    final coinbaseReady = ref
+        .watch(tradingServiceProvider)
+        .settings
+        .coinbaseConfigured;
     final killEnabled = ref.watch(killSwitchProvider);
     showDialog<void>(
       context: context,
@@ -306,9 +305,11 @@ class ModeToggle extends ConsumerWidget {
                   color: coinbaseReady ? TC.warn : TC.onBgDim,
                 ),
                 title: const Text('Live'),
-                subtitle: Text(coinbaseReady
-                    ? 'REAL Coinbase orders — double-check everything'
-                    : 'Add your Coinbase API key in Settings to unlock'),
+                subtitle: Text(
+                  coinbaseReady
+                      ? 'REAL Coinbase orders — double-check everything'
+                      : 'Add your Coinbase API key in Settings to unlock',
+                ),
                 trailing: mode == AccountMode.live
                     ? const Icon(Icons.check, color: TC.warn)
                     : null,
@@ -329,7 +330,8 @@ class ModeToggle extends ConsumerWidget {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Trading enabled'),
                 subtitle: const Text(
-                    'Kill switch — off blocks EVERY proposal, AI or manual'),
+                  'Kill switch — off blocks EVERY proposal, AI or manual',
+                ),
                 value: killEnabled,
                 activeThumbColor: TC.gain,
                 onChanged: (v) {
@@ -372,4 +374,3 @@ class ModeToggle extends ConsumerWidget {
     );
   }
 }
-

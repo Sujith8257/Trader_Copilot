@@ -37,23 +37,26 @@ class AlertRule {
       '${metric == AlertMetric.price ? value.toStringAsFixed(0) : value.toStringAsFixed(1)}';
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'symbol': symbol,
-        'metric': metric.name,
-        'op': op.name,
-        'value': value,
-        'triggered_at': triggeredAt?.toIso8601String(),
-      };
+    'id': id,
+    'symbol': symbol,
+    'metric': metric.name,
+    'op': op.name,
+    'value': value,
+    'triggered_at': triggeredAt?.toIso8601String(),
+  };
 
   static AlertRule fromMap(Map<String, dynamic> m) => AlertRule(
-        id: m['id'] as String,
-        symbol: (m['symbol'] as String).toUpperCase(),
-        metric:
-            (m['metric'] as String? ?? 'price') == 'rsi' ? AlertMetric.rsi : AlertMetric.price,
-        op: (m['op'] as String? ?? 'above') == 'below' ? AlertOp.below : AlertOp.above,
-        value: (m['value'] as num).toDouble(),
-        triggeredAt: DateTime.tryParse(m['triggered_at'] as String? ?? ''),
-      );
+    id: m['id'] as String,
+    symbol: (m['symbol'] as String).toUpperCase(),
+    metric: (m['metric'] as String? ?? 'price') == 'rsi'
+        ? AlertMetric.rsi
+        : AlertMetric.price,
+    op: (m['op'] as String? ?? 'above') == 'below'
+        ? AlertOp.below
+        : AlertOp.above,
+    value: (m['value'] as num).toDouble(),
+    triggeredAt: DateTime.tryParse(m['triggered_at'] as String? ?? ''),
+  );
 }
 
 class AlertEngine {
@@ -80,8 +83,7 @@ class AlertEngine {
 
   Future<void> _persist() async {
     final sp = await SharedPreferences.getInstance();
-    await sp.setString(
-        _pref, jsonEncode([for (final r in rules) r.toMap()]));
+    await sp.setString(_pref, jsonEncode([for (final r in rules) r.toMap()]));
   }
 
   Future<AlertRule> add({
@@ -120,7 +122,9 @@ class AlertEngine {
     final fired = <AlertRule>[];
     var dirty = false;
     for (final r in rules) {
-      final v = r.metric == AlertMetric.price ? prices[r.symbol] : rsi[r.symbol];
+      final v = r.metric == AlertMetric.price
+          ? prices[r.symbol]
+          : rsi[r.symbol];
       if (v == null) continue;
       final hit = r.op == AlertOp.above ? v >= r.value : v <= r.value;
       if (hit && !r.triggeredOnce) {

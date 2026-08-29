@@ -24,10 +24,11 @@ import 'paper_broker.dart';
 import 'risk_engine.dart';
 
 class Settings {
-  Settings(
-      {this.brain = const BrainConfig(),
-      this.coinbaseKey = '',
-      this.coinbaseSecret = ''});
+  Settings({
+    this.brain = const BrainConfig(),
+    this.coinbaseKey = '',
+    this.coinbaseSecret = '',
+  });
 
   BrainConfig brain;
   String coinbaseKey;
@@ -38,8 +39,12 @@ class Settings {
 }
 
 class TradeExecution {
-  TradeExecution(
-      {required this.executed, required this.mode, this.fillPrice, this.reason});
+  TradeExecution({
+    required this.executed,
+    required this.mode,
+    this.fillPrice,
+    this.reason,
+  });
   final bool executed;
   final AccountMode mode;
   final double? fillPrice;
@@ -54,10 +59,11 @@ class RefreshTick {
 }
 
 class TradingService {
-  TradingService(
-      {LiveCoinbaseMarket? marketClient,
-      PaperBroker? paperBroker,
-      RiskEngine? riskEngine}) {
+  TradingService({
+    LiveCoinbaseMarket? marketClient,
+    PaperBroker? paperBroker,
+    RiskEngine? riskEngine,
+  }) {
     market = marketClient ?? LiveCoinbaseMarket();
     risk = riskEngine ?? RiskEngine();
     agent = TradingAgent(market: market, risk: risk);
@@ -95,7 +101,9 @@ class TradingService {
     final sp = await SharedPreferences.getInstance();
     final paperJson = sp.getString(_prefPaper);
     _paper = paperJson != null
-        ? PaperBroker.fromSnapshot(jsonDecode(paperJson) as Map<String, dynamic>)
+        ? PaperBroker.fromSnapshot(
+            jsonDecode(paperJson) as Map<String, dynamic>,
+          )
         : PaperBroker(accountId: 'phone-paper');
     _paper!.rollDay(DateTime.now().toUtc());
     final brainJson = sp.getString(_prefBrain);
@@ -103,7 +111,8 @@ class TradingService {
         ? BrainConfig.fromMap(jsonDecode(brainJson) as Map<String, dynamic>)
         : BrainConfig.defaults(BrainKind.rule);
     const secure = FlutterSecureStorage(
-        aOptions: AndroidOptions(encryptedSharedPreferences: true));
+      aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    );
     _settings = Settings(
       brain: _brain!,
       coinbaseKey: await secure.read(key: 'coinbase_key') ?? '',
@@ -118,9 +127,10 @@ class TradingService {
   Future<void> saveBrain(BrainConfig brain) async {
     _brain = brain;
     _settings = Settings(
-        brain: brain,
-        coinbaseKey: _settings.coinbaseKey,
-        coinbaseSecret: _settings.coinbaseSecret);
+      brain: brain,
+      coinbaseKey: _settings.coinbaseKey,
+      coinbaseSecret: _settings.coinbaseSecret,
+    );
     final sp = await SharedPreferences.getInstance();
     // the API key lives in secure storage only — never in prefs
     final safe = Map<String, dynamic>.from(brain.toMap());
@@ -128,13 +138,20 @@ class TradingService {
     await sp.setString(_prefBrain, jsonEncode(safe));
   }
 
-  Future<void> saveCoinbaseCredentials(
-      {required String key, required String secret}) async {
+  Future<void> saveCoinbaseCredentials({
+    required String key,
+    required String secret,
+  }) async {
     const secure = FlutterSecureStorage(
-        aOptions: AndroidOptions(encryptedSharedPreferences: true));
+      aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    );
     await secure.write(key: 'coinbase_key', value: key);
     await secure.write(key: 'coinbase_secret', value: secret);
-    _settings = Settings(brain: brain, coinbaseKey: key, coinbaseSecret: secret);
+    _settings = Settings(
+      brain: brain,
+      coinbaseKey: key,
+      coinbaseSecret: secret,
+    );
     market.client
       ..apiKey = key
       ..privateKey = secret;
@@ -157,7 +174,9 @@ class TradingService {
     for (final sym in market.symbols) {
       try {
         prices[sym] = await market.last(sym);
-      } catch (_) {/* keep last known */}
+      } catch (_) {
+        /* keep last known */
+      }
     }
     paper.markAll(prices);
     final limitFills = paper.processLimits(prices);
@@ -202,14 +221,18 @@ class TradingService {
     for (final sym in market.symbols) {
       try {
         final s = await agent.toolIndicators(sym);
-        rows.add(MarketRow(
-          symbol: sym,
-          last: (s['last'] as num).toDouble(),
-          changePct: (s['change_pct'] as num).toDouble(),
-          rsi: (s['rsi'] as num?)?.toDouble(),
-          trend: s['trend'] as String,
-        ));
-      } catch (_) {/* skip on fetch failure */}
+        rows.add(
+          MarketRow(
+            symbol: sym,
+            last: (s['last'] as num).toDouble(),
+            changePct: (s['change_pct'] as num).toDouble(),
+            rsi: (s['rsi'] as num?)?.toDouble(),
+            trend: s['trend'] as String,
+          ),
+        );
+      } catch (_) {
+        /* skip on fetch failure */
+      }
     }
     return rows;
   }
@@ -247,8 +270,10 @@ class TradingService {
     var cash = 0.0;
     final positions = <String, Position>{};
     for (final a in accounts) {
-      final bal = double.tryParse(
-              ((a['available_balance'] ?? {})['value'] ?? '0').toString()) ??
+      final bal =
+          double.tryParse(
+            ((a['available_balance'] ?? {})['value'] ?? '0').toString(),
+          ) ??
           0;
       if (bal <= 0) continue;
       final cur = (a['currency'] as String? ?? '').toUpperCase();
@@ -260,16 +285,23 @@ class TradingService {
         double price = 0;
         try {
           price = await market.last(cur);
-        } catch (_) {/* mark at 0 if fetch fails */}
+        } catch (_) {
+          /* mark at 0 if fetch fails */
+        }
         positions[cur] = Position(
-            symbol: cur, quantity: bal, avgPrice: price, lastPrice: price);
+          symbol: cur,
+          quantity: bal,
+          avgPrice: price,
+          lastPrice: price,
+        );
       }
     }
     return AccountState(
       accountId: 'coinbase-live',
       mode: AccountMode.live,
       cash: cash,
-      equity: cash +
+      equity:
+          cash +
           positions.values.fold(0.0, (s, p) => s + p.quantity * p.lastPrice),
       positions: positions,
     );
@@ -295,7 +327,10 @@ class TradingService {
     );
     if (!verdict.allowed) {
       return TradeExecution(
-          executed: false, mode: mode, reason: verdict.violations.first);
+        executed: false,
+        mode: mode,
+        reason: verdict.violations.first,
+      );
     }
     if (mode == AccountMode.paper) {
       final result = paper.placeMarketOrder(
@@ -315,17 +350,25 @@ class TradingService {
     // LIVE — real money on Coinbase.
     if (!_settings.coinbaseConfigured) {
       return TradeExecution(
-          executed: false, mode: AccountMode.live,
-          reason: 'Coinbase credentials not configured.');
+        executed: false,
+        mode: AccountMode.live,
+        reason: 'Coinbase credentials not configured.',
+      );
     }
     try {
       final fx = await market.usdInr();
       final quote = p.quantity * p.marketPrice / fx; // INR -> USD
       final resp = p.side == Side.buy
-          ? await market.client.marketOrder('${p.symbol}-USDC', 'BUY',
-              quoteSize: quote.toStringAsFixed(2))
-          : await market.client.marketOrder('${p.symbol}-USDC', 'SELL',
-              baseSize: p.quantity.toStringAsFixed(8));
+          ? await market.client.marketOrder(
+              '${p.symbol}-USDC',
+              'BUY',
+              quoteSize: quote.toStringAsFixed(2),
+            )
+          : await market.client.marketOrder(
+              '${p.symbol}-USDC',
+              'SELL',
+              baseSize: p.quantity.toStringAsFixed(8),
+            );
       final ok = resp['success'] == true;
       return TradeExecution(
         executed: ok,
@@ -335,7 +378,10 @@ class TradingService {
       );
     } on CoinbaseException catch (e) {
       return TradeExecution(
-          executed: false, mode: AccountMode.live, reason: e.message);
+        executed: false,
+        mode: AccountMode.live,
+        reason: e.message,
+      );
     }
   }
 
@@ -373,17 +419,23 @@ class TradingService {
     );
     if (!verdict.allowed) {
       return TradeExecution(
-          executed: false, mode: AccountMode.paper, reason: verdict.violations.first);
+        executed: false,
+        mode: AccountMode.paper,
+        reason: verdict.violations.first,
+      );
     }
-    return execute(AgentProposal(
-      symbol: symbol,
-      side: side,
-      quantity: quantity,
-      marketPrice: marketPrice,
-      stopLoss: stopLoss,
-      rationale: 'Manual order from the chart order ticket',
-      verdict: verdict,
-    ), AccountMode.live);
+    return execute(
+      AgentProposal(
+        symbol: symbol,
+        side: side,
+        quantity: quantity,
+        marketPrice: marketPrice,
+        stopLoss: stopLoss,
+        rationale: 'Manual order from the chart order ticket',
+        verdict: verdict,
+      ),
+      AccountMode.live,
+    );
   }
 
   /// Rests a MANUAL limit order on the paper broker (fills when the live
@@ -406,12 +458,22 @@ class TradingService {
     );
     if (!verdict.allowed) {
       return TradeExecution(
-          executed: false, mode: AccountMode.paper, reason: verdict.violations.first);
+        executed: false,
+        mode: AccountMode.paper,
+        reason: verdict.violations.first,
+      );
     }
     final r = paper.placeLimitOrder(
-        symbol: symbol, side: side, quantity: quantity, limitPrice: limitPrice);
+      symbol: symbol,
+      side: side,
+      quantity: quantity,
+      limitPrice: limitPrice,
+    );
     await _persistPaper();
     return TradeExecution(
-        executed: r.filled, mode: AccountMode.paper, reason: r.reason);
+      executed: r.filled,
+      mode: AccountMode.paper,
+      reason: r.reason,
+    );
   }
 }

@@ -40,8 +40,9 @@ class ProposalCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: (verdict.allowed ? TC.gain : TC.loss)
-                    .withValues(alpha: 0.12),
+                color: (verdict.allowed ? TC.gain : TC.loss).withValues(
+                  alpha: 0.12,
+                ),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
@@ -58,8 +59,8 @@ class ProposalCard extends StatelessWidget {
                         Text(
                           verdict.allowed
                               ? (liveMode
-                                  ? 'Risk Engine: Allowed — LIVE order'
-                                  : 'Risk Engine: Allowed')
+                                    ? 'Risk Engine: Allowed — LIVE order'
+                                    : 'Risk Engine: Allowed')
                               : 'Risk Engine: Blocked',
                           style: TextStyle(
                             color: verdict.allowed
@@ -85,8 +86,10 @@ class ProposalCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: (proposal.side == Side.buy ? TC.gain : TC.loss)
                         .withValues(alpha: 0.14),
@@ -183,14 +186,18 @@ class ProposalCard extends StatelessWidget {
                     color: TC.loss.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Row(children: [
-                    const Icon(Icons.close, color: TC.loss, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text(v,
-                            style: const TextStyle(
-                                fontSize: 13, color: TC.loss))),
-                  ]),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.close, color: TC.loss, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          v,
+                          style: const TextStyle(fontSize: 13, color: TC.loss),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
 
@@ -204,28 +211,37 @@ class ProposalCard extends StatelessWidget {
                     color: TC.warn.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Row(children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        color: TC.warn, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                        child: Text(w,
-                            style: const TextStyle(
-                                fontSize: 13, color: TC.warn))),
-                  ]),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: TC.warn,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          w,
+                          style: const TextStyle(fontSize: 13, color: TC.warn),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
 
             if (proposal.rationale.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text('Why the AI proposes this',
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                'Why the AI proposes this',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 4),
-              Text(proposal.rationale,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(fontStyle: FontStyle.italic)),
+              Text(
+                proposal.rationale,
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontStyle: FontStyle.italic),
+              ),
               const SizedBox(height: 14),
             ],
 
@@ -245,7 +261,6 @@ class ProposalCard extends StatelessWidget {
                 ),
               ],
             ),
-
           ],
         ),
       ),
@@ -285,18 +300,20 @@ class _NumBox extends StatelessWidget {
               Icon(icon, size: 12, color: color),
               const SizedBox(width: 4),
               Flexible(
-                child: Text(label,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis),
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(value,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(color: color)),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(color: color),
+          ),
         ],
       ),
     );

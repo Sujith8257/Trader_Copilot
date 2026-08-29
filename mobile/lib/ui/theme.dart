@@ -80,18 +80,20 @@ abstract final class TC {
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: gain, width: 1.4),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: gain,
           foregroundColor: const Color(0xFF052A1D),
           minimumSize: const Size(0, 48),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle:
-              const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -99,8 +101,9 @@ abstract final class TC {
           foregroundColor: onBg,
           minimumSize: const Size(0, 48),
           side: const BorderSide(color: outline),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
@@ -124,24 +127,27 @@ abstract final class TC {
         labelTextStyle: const WidgetStatePropertyAll(
           TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onBgDim),
         ),
-        iconTheme: const WidgetStatePropertyAll(
-          IconThemeData(color: onBgDim),
-        ),
+        iconTheme: const WidgetStatePropertyAll(IconThemeData(color: onBgDim)),
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: bg,
         indicatorColor: const Color(0x2234D399),
         selectedLabelTextStyle: const TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w700, color: TC.onBg),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: TC.onBg,
+        ),
         unselectedLabelTextStyle: const TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w600, color: TC.onBgDim),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: TC.onBgDim,
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: surfaceHi,
         contentTextStyle: const TextStyle(color: onBg),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: surface,
@@ -157,7 +163,6 @@ abstract final class TC {
         ),
         textStyle: TextStyle(color: onBg, fontSize: 12),
       ),
-
     );
   }
 
@@ -169,19 +174,28 @@ abstract final class TC {
       FontWeight? w,
       double? ls,
       Color? c,
-    }) =>
-        s.copyWith(
-          fontSize: size,
-          fontWeight: w,
-          letterSpacing: ls,
-          color: c,
-          fontFeatures: tabular,
-        );
-    return t.apply(bodyColor: onBg, displayColor: onBg).copyWith(
-          headlineLarge:
-              f(t.headlineLarge!, size: 32, w: FontWeight.w800, ls: -0.8),
-          headlineMedium:
-              f(t.headlineMedium!, size: 26, w: FontWeight.w800, ls: -0.6),
+    }) => s.copyWith(
+      fontSize: size,
+      fontWeight: w,
+      letterSpacing: ls,
+      color: c,
+      fontFeatures: tabular,
+    );
+    return t
+        .apply(bodyColor: onBg, displayColor: onBg)
+        .copyWith(
+          headlineLarge: f(
+            t.headlineLarge!,
+            size: 32,
+            w: FontWeight.w800,
+            ls: -0.8,
+          ),
+          headlineMedium: f(
+            t.headlineMedium!,
+            size: 26,
+            w: FontWeight.w800,
+            ls: -0.6,
+          ),
           titleLarge: f(t.titleLarge!, size: 19, w: FontWeight.w700, ls: -0.3),
           titleMedium: f(t.titleMedium!, size: 16, w: FontWeight.w700),
           titleSmall: f(t.titleSmall!, size: 13.5, w: FontWeight.w600),

@@ -44,13 +44,16 @@ void main() {
       final bars = <Candle>[];
       for (var i = 0; i < 120; i++) {
         final o = 100.0 + i;
-        bars.add(Candle(
+        bars.add(
+          Candle(
             time: DateTime.now(),
             open: o,
             high: o + 2,
             low: o - 2,
             close: o + 1,
-            volume: 10));
+            volume: 10,
+          ),
+        );
       }
       final s = snapshot(bars);
       expect(s['trend'], 'UP');
@@ -145,13 +148,21 @@ void main() {
     test('market buy then sell round-trips cash and PnL', () {
       final broker = PaperBroker(accountId: 't', initialCash: 1000000);
       final buy = broker.placeMarketOrder(
-          symbol: 'BTC', side: Side.buy, quantity: 0.01, marketPrice: 100);
+        symbol: 'BTC',
+        side: Side.buy,
+        quantity: 0.01,
+        marketPrice: 100,
+      );
       expect(buy.filled, isTrue);
       expect(broker.account.cash, closeTo(999999, 0.001));
       expect(broker.account.positions['BTC']!.quantity, 0.01);
 
       final sell = broker.placeMarketOrder(
-          symbol: 'BTC', side: Side.sell, quantity: 0.01, marketPrice: 110);
+        symbol: 'BTC',
+        side: Side.sell,
+        quantity: 0.01,
+        marketPrice: 110,
+      );
       expect(sell.filled, isTrue);
       expect(broker.account.cash, closeTo(1000000.1, 0.001));
       expect(broker.account.realizedPnlToday, closeTo(0.1, 0.001));
@@ -161,17 +172,29 @@ void main() {
     test('rejects buying without cash and selling without position', () {
       final broker = PaperBroker(accountId: 't', initialCash: 500);
       final r1 = broker.placeMarketOrder(
-          symbol: 'BTC', side: Side.buy, quantity: 1, marketPrice: 1000);
+        symbol: 'BTC',
+        side: Side.buy,
+        quantity: 1,
+        marketPrice: 1000,
+      );
       expect(r1.filled, isFalse);
       final r2 = broker.placeMarketOrder(
-          symbol: 'BTC', side: Side.sell, quantity: 1, marketPrice: 1000);
+        symbol: 'BTC',
+        side: Side.sell,
+        quantity: 1,
+        marketPrice: 1000,
+      );
       expect(r2.filled, isFalse);
     });
 
     test('persists to a map and restores', () {
       final broker = PaperBroker(accountId: 't', initialCash: 1000000);
       broker.placeMarketOrder(
-          symbol: 'ETH', side: Side.buy, quantity: 2, marketPrice: 100);
+        symbol: 'ETH',
+        side: Side.buy,
+        quantity: 2,
+        marketPrice: 100,
+      );
       final restored = PaperBroker.fromMap(broker.account.toMap());
       expect(restored.account.cash, broker.account.cash);
       expect(restored.account.positions['ETH']!.quantity, 2);
@@ -188,8 +211,10 @@ void main() {
     });
 
     test('rejects garbage keys', () {
-      expect(() => decodePrivateKey(base64Encode([1, 2, 3])),
-          throwsA(isA<CoinbaseException>()));
+      expect(
+        () => decodePrivateKey(base64Encode([1, 2, 3])),
+        throwsA(isA<CoinbaseException>()),
+      );
     });
   });
 
@@ -197,7 +222,11 @@ void main() {
     test('rests, then fills when the live price crosses, at the limit', () {
       final broker = PaperBroker(accountId: 't', initialCash: 1000000);
       final r = broker.placeLimitOrder(
-          symbol: 'BTC', side: Side.buy, quantity: 0.01, limitPrice: 100);
+        symbol: 'BTC',
+        side: Side.buy,
+        quantity: 0.01,
+        limitPrice: 100,
+      );
       expect(r.filled, isTrue);
       expect(broker.limitOrders.length, 1);
 
@@ -212,9 +241,17 @@ void main() {
     test('sell limit fills on the way up', () {
       final broker = PaperBroker(accountId: 't', initialCash: 1000000);
       broker.placeMarketOrder(
-          symbol: 'ETH', side: Side.buy, quantity: 2, marketPrice: 100);
+        symbol: 'ETH',
+        side: Side.buy,
+        quantity: 2,
+        marketPrice: 100,
+      );
       broker.placeLimitOrder(
-          symbol: 'ETH', side: Side.sell, quantity: 2, limitPrice: 120);
+        symbol: 'ETH',
+        side: Side.sell,
+        quantity: 2,
+        limitPrice: 120,
+      );
       final fills = broker.processLimits({'ETH': 121});
       expect(fills.length, 1);
       expect(broker.account.realizedPnlToday, closeTo(40, 0.001));
@@ -223,7 +260,11 @@ void main() {
     test('snapshot round-trips resting limits', () {
       final broker = PaperBroker(accountId: 't', initialCash: 1000000);
       broker.placeLimitOrder(
-          symbol: 'BTC', side: Side.buy, quantity: 0.01, limitPrice: 100);
+        symbol: 'BTC',
+        side: Side.buy,
+        quantity: 0.01,
+        limitPrice: 100,
+      );
       final restored = PaperBroker.fromSnapshot(broker.toSnapshot());
       expect(restored.limitOrders.length, 1);
       expect(restored.limitOrders.first.limitPrice, 100);
@@ -236,10 +277,11 @@ void main() {
     test('fires once on a fresh crossing, then re-arms', () async {
       final engine = AlertEngine();
       await engine.add(
-          symbol: 'BTC',
-          metric: AlertMetric.price,
-          op: AlertOp.above,
-          value: 100);
+        symbol: 'BTC',
+        metric: AlertMetric.price,
+        op: AlertOp.above,
+        value: 100,
+      );
 
       expect(await engine.check(prices: {'BTC': 90}, rsi: {}), isEmpty);
       expect((await engine.check(prices: {'BTC': 105}, rsi: {})).length, 1);
@@ -251,7 +293,11 @@ void main() {
     test('rsi alerts fire on oversold', () async {
       final engine = AlertEngine();
       await engine.add(
-          symbol: 'ETH', metric: AlertMetric.rsi, op: AlertOp.below, value: 30);
+        symbol: 'ETH',
+        metric: AlertMetric.rsi,
+        op: AlertOp.below,
+        value: 30,
+      );
       final fired = await engine.check(prices: {}, rsi: {'ETH': 28.5});
       expect(fired.length, 1);
       expect(fired.first.symbol, 'ETH');
@@ -260,7 +306,11 @@ void main() {
     test('rules persist across engine instances', () async {
       final a = AlertEngine();
       await a.add(
-          symbol: 'BTC', metric: AlertMetric.price, op: AlertOp.below, value: 50);
+        symbol: 'BTC',
+        metric: AlertMetric.price,
+        op: AlertOp.below,
+        value: 50,
+      );
       final b = AlertEngine();
       await b.load();
       expect(b.rules.length, 1);
@@ -270,11 +320,19 @@ void main() {
 
   group('portfolio analytics', () {
     ExecutedTrade t(Side side, double qty, double px) => ExecutedTrade(
-        symbol: 'BTC', side: side, quantity: qty, filledPrice: px, at: DateTime.now());
+      symbol: 'BTC',
+      side: side,
+      quantity: qty,
+      filledPrice: px,
+      at: DateTime.now(),
+    );
 
     test('realized pnl per closed lot uses the average entry', () {
-      final pnls = realizedPnlSeries(
-          [t(Side.buy, 1, 100), t(Side.buy, 1, 120), t(Side.sell, 2, 130)]);
+      final pnls = realizedPnlSeries([
+        t(Side.buy, 1, 100),
+        t(Side.buy, 1, 120),
+        t(Side.sell, 2, 130),
+      ]);
       expect(pnls.length, 1);
       expect(pnls.first, closeTo(40, 0.001)); // avg entry 110, 2 sold @ 130
     });
@@ -306,11 +364,12 @@ void main() {
     test('csv export has a header and one row per trade', () {
       final csv = tradesCsv([
         ExecutedTrade(
-            symbol: 'BTC',
-            side: Side.buy,
-            quantity: 0.01,
-            filledPrice: 5400000,
-            at: DateTime.parse('2026-01-01T10:00:00Z')),
+          symbol: 'BTC',
+          side: Side.buy,
+          quantity: 0.01,
+          filledPrice: 5400000,
+          at: DateTime.parse('2026-01-01T10:00:00Z'),
+        ),
       ]);
       final lines = csv.trim().split('\n');
       expect(lines.first, startsWith('time,symbol,side'));

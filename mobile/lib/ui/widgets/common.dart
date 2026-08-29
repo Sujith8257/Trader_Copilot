@@ -75,9 +75,7 @@ class StatTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             value,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
+            style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(color: valueColor),
           ),
         ],
@@ -164,16 +162,19 @@ class AllocationBar extends StatelessWidget {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                          color: s.color, shape: BoxShape.circle),
+                        color: s.color,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                     const SizedBox(width: 6),
-                    Text(s.label,
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(s.label, style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(width: 6),
                     Text(
                       formatINR(s.value),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w700, color: TC.onBg),
+                        fontWeight: FontWeight.w700,
+                        color: TC.onBg,
+                      ),
                     ),
                   ],
                 ),
@@ -287,10 +288,7 @@ class _SparkPainter extends CustomPainter {
     }
     final dx = values.length == 1 ? 0.0 : size.width / (values.length - 1);
     final dy = size.height - 4;
-    Offset pt(int i) => Offset(
-          i * dx,
-          2 + (hi - values[i]) / (hi - lo) * dy,
-        );
+    Offset pt(int i) => Offset(i * dx, 2 + (hi - values[i]) / (hi - lo) * dy);
 
     final path = Path()..moveTo(pt(0).dx, pt(0).dy);
     for (var i = 1; i < values.length; i++) {
@@ -352,9 +350,10 @@ class _SkeletonState extends State<Skeleton>
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
-      opacity: Tween(begin: 0.35, end: 0.8).animate(
-        CurvedAnimation(parent: _c, curve: Curves.easeInOut),
-      ),
+      opacity: Tween(
+        begin: 0.35,
+        end: 0.8,
+      ).animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut)),
       child: Container(
         width: widget.width,
         height: widget.height,
@@ -366,4 +365,3 @@ class _SkeletonState extends State<Skeleton>
     );
   }
 }
-

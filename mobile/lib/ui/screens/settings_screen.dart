@@ -35,15 +35,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       try {
         final ok = await LocalAuthentication().authenticate(
           localizedReason: 'Confirm to enable the app lock',
-          options:
-              const AuthenticationOptions(stickyAuth: true, biometricOnly: true),
+          options: const AuthenticationOptions(
+            stickyAuth: true,
+            biometricOnly: true,
+          ),
         );
         if (!ok) return;
       } catch (_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text(
-                  'No biometrics available on this device — lock not enabled.')));
+                'No biometrics available on this device — lock not enabled.',
+              ),
+            ),
+          );
         }
         return;
       }
@@ -78,8 +84,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _cbKey.text = s.coinbaseKey;
       _cbSecret.text = s.coinbaseSecret;
     });
-    final bio = await SharedPreferences.getInstance()
-        .then((sp) => sp.getBool('biometric_lock') ?? false);
+    final bio = await SharedPreferences.getInstance().then(
+      (sp) => sp.getBool('biometric_lock') ?? false,
+    );
     if (mounted) setState(() => _bioLock = bio);
   }
 
@@ -122,10 +129,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _probeResult = null;
     });
     try {
-      final cfg = BrainConfig.defaults(_kind,
-          baseUrl: _url.text.trim(),
-          apiKey: _brainKey.text.trim(),
-          model: _model.text.trim());
+      final cfg = BrainConfig.defaults(
+        _kind,
+        baseUrl: _url.text.trim(),
+        apiKey: _brainKey.text.trim(),
+        model: _model.text.trim(),
+      );
       final reply = await LlmClient().probe(cfg);
       setState(() => _probeResult = 'OK — brain replied: "$reply"');
     } catch (e) {
@@ -138,14 +147,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _saveCoinbase() async {
     setState(() => _savingCb = true);
     try {
-      await ref.read(tradingServiceProvider).saveCoinbaseCredentials(
+      await ref
+          .read(tradingServiceProvider)
+          .saveCoinbaseCredentials(
             key: _cbKey.text.trim(),
             secret: _cbSecret.text.trim(),
           );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-                Text('Coinbase credentials stored in the Android Keystore.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Coinbase credentials stored in the Android Keystore.',
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _savingCb = false);
@@ -203,34 +218,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),
-            _Field(_url,
-                _kind == BrainKind.localServer ? 'Base URL' : 'Base URL (optional override)'),
+            _Field(
+              _url,
+              _kind == BrainKind.localServer
+                  ? 'Base URL'
+                  : 'Base URL (optional override)',
+            ),
             if (_kind.needsKey)
-              _Field(_brainKey, 'API key',
-                  obscure: true, hint: _kind.keyHint),
+              _Field(_brainKey, 'API key', obscure: true, hint: _kind.keyHint),
             _Field(_model, 'Model name', hint: 'e.g. qwen3.5-9b'),
           ],
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(
-              child: FilledButton.tonal(
-                onPressed: _saveBrain,
-                child: const Text('Save brain'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: _saveBrain,
+                  child: const Text('Save brain'),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _probing ? null : _probeBrain,
-                child: Text(_probing ? 'Testing…' : 'Test brain'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _probing ? null : _probeBrain,
+                  child: Text(_probing ? 'Testing…' : 'Test brain'),
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           if (_probeResult != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(_probeResult!,
-                  style: const TextStyle(fontSize: 12.5, color: TC.onBg)),
+              child: Text(
+                _probeResult!,
+                style: const TextStyle(fontSize: 12.5, color: TC.onBg),
+              ),
             ),
           const SizedBox(height: 24),
           const _SectionTitle('Coinbase (live trading + live account)'),
@@ -248,24 +270,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Text(_savingCb ? 'Saving…' : 'Save Coinbase credentials'),
           ),
           const SizedBox(height: 6),
-          Builder(builder: (context) {
-            final ok = svc.settings.coinbaseConfigured;
-            return Text(
-              ok
-                  ? 'Configured — Live mode is unlocked.'
-                  : 'Not configured — Live mode stays locked.',
-              style:
-                  TextStyle(fontSize: 12.5, color: ok ? TC.gain : TC.onBgDim),
-            );
-          }),
+          Builder(
+            builder: (context) {
+              final ok = svc.settings.coinbaseConfigured;
+              return Text(
+                ok
+                    ? 'Configured — Live mode is unlocked.'
+                    : 'Not configured — Live mode stays locked.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: ok ? TC.gain : TC.onBgDim,
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 24),
           const _SectionTitle('Security'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Biometric app lock'),
             subtitle: const Text(
-                'Fingerprint / face required to open the app. Keys stay in '
-                'the Android Keystore either way.'),
+              'Fingerprint / face required to open the app. Keys stay in '
+              'the Android Keystore either way.',
+            ),
             value: _bioLock,
             activeThumbColor: TC.gain,
             onChanged: _toggleBioLock,
@@ -284,7 +311,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Max position size'),
             subtitle: Text(
-                '₹${svc.risk.config.maxPositionNotional.toStringAsFixed(0)} per position'),
+              '₹${svc.risk.config.maxPositionNotional.toStringAsFixed(0)} per position',
+            ),
             trailing: SizedBox(
               width: 190,
               child: Slider(
@@ -311,8 +339,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 max: 10,
                 divisions: 9,
                 label: '${svc.risk.config.maxOpenPositions}',
-                onChanged: (v) =>
-                    setState(() => svc.risk.config.maxOpenPositions = v.round()),
+                onChanged: (v) => setState(
+                  () => svc.risk.config.maxOpenPositions = v.round(),
+                ),
               ),
             ),
           ),
@@ -329,7 +358,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ref.invalidate(historyProvider);
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Paper account reset.')));
+                const SnackBar(content: Text('Paper account reset.')),
+              );
             },
           ),
         ],
@@ -344,13 +374,13 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800)),
-      );
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.titleMedium
+          ?.copyWith(fontWeight: FontWeight.w800),
+    ),
+  );
 }
 
 class _Field extends StatelessWidget {
@@ -375,8 +405,11 @@ class _Field extends StatelessWidget {
 
 /// One selectable LLM provider card in the brain picker.
 class _ProviderCard extends StatelessWidget {
-  const _ProviderCard(
-      {required this.kind, required this.selected, required this.onTap});
+  const _ProviderCard({
+    required this.kind,
+    required this.selected,
+    required this.onTap,
+  });
 
   final BrainKind kind;
   final bool selected;
@@ -393,36 +426,41 @@ class _ProviderCard extends StatelessWidget {
           color: selected ? TC.gain.withValues(alpha: 0.10) : TC.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: selected ? TC.gain : TC.outline,
-              width: selected ? 1.4 : 1),
+            color: selected ? TC.gain : TC.outline,
+            width: selected ? 1.4 : 1,
+          ),
         ),
         child: Row(
           children: [
-            Icon(kind.icon,
-                size: 20, color: selected ? TC.gain : TC.onBgDim),
+            Icon(kind.icon, size: 20, color: selected ? TC.gain : TC.onBgDim),
             const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    kind.label,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? TC.gain : TC.onBg,
+              // FittedBox scales the text to the tight grid cell: no vertical
+              // or horizontal overflow regardless of screen width or font scale.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kind.label,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: selected ? TC.gain : TC.onBg,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    kind.subtitle,
-                    style: const TextStyle(
-                        fontSize: 10, color: TC.onBgDim),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                    Text(
+                      kind.subtitle,
+                      style: const TextStyle(fontSize: 10, color: TC.onBgDim),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
             ),
             if (selected)

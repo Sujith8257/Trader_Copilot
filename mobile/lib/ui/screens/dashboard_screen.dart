@@ -104,8 +104,9 @@ class _HeroCard extends ConsumerWidget {
     final equitySeries = (history ?? const <EquityPoint>[])
         .map((p) => p.equity)
         .toList(growable: false);
-    final delta =
-        account.dayStart == null ? null : account.equity - account.dayStart!;
+    final delta = account.dayStart == null
+        ? null
+        : account.equity - account.dayStart!;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -129,7 +130,11 @@ class _HeroCard extends ConsumerWidget {
                   color: Colors.white.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.shield_outlined, size: 18, color: TC.gain),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  size: 18,
+                  color: TC.gain,
+                ),
               ),
               const SizedBox(width: 10),
               Text(
@@ -143,21 +148,25 @@ class _HeroCard extends ConsumerWidget {
           const SizedBox(height: 14),
           Text('Net worth', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 4),
-          Row(
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: Text(
-                  formatINR(account.equity),
-                  key: ValueKey(account.equity),
-                  style: Theme.of(context).textTheme.headlineLarge,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    formatINR(account.equity),
+                    key: ValueKey(account.equity),
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
                 ),
-              ),
-              if (delta != null) ...[
-                const SizedBox(width: 10),
-                PnlChip(delta, suffix: ' today'),
+                if (delta != null) ...[
+                  const SizedBox(width: 10),
+                  PnlChip(delta, suffix: ' today'),
+                ],
               ],
-            ],
+            ),
           ),
           if (equitySeries.length >= 2) ...[
             const SizedBox(height: 12),
@@ -210,12 +219,12 @@ class _AllocationCard extends StatelessWidget {
     final slices = <AllocationSlice>[
       AllocationSlice('Cash', account.cash, TC.info),
       ...account.positions.values.toList().asMap().entries.map(
-            (e) => AllocationSlice(
-              e.value.symbol,
-              e.value.marketValue,
-              TC.accents[e.key % TC.accents.length],
-            ),
-          ),
+        (e) => AllocationSlice(
+          e.value.symbol,
+          e.value.marketValue,
+          TC.accents[e.key % TC.accents.length],
+        ),
+      ),
     ];
     return Card(
       child: Padding(
@@ -231,6 +240,7 @@ class _AllocationCard extends StatelessWidget {
     );
   }
 }
+
 class _PositionTile extends StatelessWidget {
   const _PositionTile(this.p);
 
@@ -268,8 +278,10 @@ class _PositionTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(p.symbol,
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      p.symbol,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       '${p.quantity} @ ${formatINR(p.avgPrice, decimals: 2)}',
@@ -281,8 +293,10 @@ class _PositionTile extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(formatINR(p.marketValue),
-                      style: Theme.of(context).textTheme.titleSmall),
+                  Text(
+                    formatINR(p.marketValue),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                   const SizedBox(height: 4),
                   PnlChip(p.unrealizedPnl),
                 ],
@@ -342,8 +356,10 @@ class _ErrorView extends StatelessWidget {
               child: const Icon(Icons.cloud_off, size: 32, color: TC.loss),
             ),
             const SizedBox(height: 16),
-            Text('Cannot reach Coinbase',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Cannot reach Coinbase',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 8),
             Text(
               'Check your internet connection — every price and chart in this '
@@ -404,8 +420,6 @@ class _RadarCard extends ConsumerWidget {
   }
 }
 
-
-
 /// One pinned or radar symbol tile with a watchlist pin.
 class _SymbolTile extends ConsumerWidget {
   const _SymbolTile({required this.row, required this.onTap});
@@ -431,7 +445,8 @@ class _SymbolTile extends ConsumerWidget {
           color: TC.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-              color: pinned ? TC.gain.withValues(alpha: 0.5) : TC.outline),
+            color: pinned ? TC.gain.withValues(alpha: 0.5) : TC.outline,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -474,8 +489,7 @@ class _SymbolTile extends ConsumerWidget {
             Text(
               '${up ? '+' : ''}${row.changePct.toStringAsFixed(1)}%  '
               'RSI ${row.rsi?.toStringAsFixed(0) ?? '-'}',
-              style:
-                  TextStyle(fontSize: 11.5, color: up ? TC.gain : TC.loss),
+              style: TextStyle(fontSize: 11.5, color: up ? TC.gain : TC.loss),
             ),
           ],
         ),
@@ -536,29 +550,37 @@ class _NewsCard extends ConsumerWidget {
       children: [
         const SizedBox(height: 20),
         SectionHeader('Market news', trailing: 'via web search'),
-        ...news.take(3).map((n) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: TC.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: TC.outline),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(n['title'] ?? '',
-                      style: Theme.of(context).textTheme.titleSmall),
-                  if ((n['snippet'] ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(n['snippet']!,
+        ...news
+            .take(3)
+            .map(
+              (n) => Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: TC.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: TC.outline),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      n['title'] ?? '',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    if ((n['snippet'] ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        n['snippet']!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            )),
+            ),
       ],
     );
   }

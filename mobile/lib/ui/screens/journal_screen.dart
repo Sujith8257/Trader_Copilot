@@ -67,7 +67,10 @@ class JournalScreen extends ConsumerWidget {
                 Row(
                   children: [
                     _SideCountChip(
-                        label: '$buys buys', color: TC.gain, up: true),
+                      label: '$buys buys',
+                      color: TC.gain,
+                      up: true,
+                    ),
                     const SizedBox(width: 8),
                     _SideCountChip(
                       label: '${trades.length - buys} sells',
@@ -91,8 +94,11 @@ class JournalScreen extends ConsumerWidget {
                 label: const Text('Export CSV'),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: tradesCsv(trades)));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Journal CSV copied to clipboard.')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Journal CSV copied to clipboard.'),
+                    ),
+                  );
                 },
               ),
             ),
@@ -107,8 +113,11 @@ class JournalScreen extends ConsumerWidget {
 }
 
 class _SideCountChip extends StatelessWidget {
-  const _SideCountChip(
-      {required this.label, required this.color, required this.up});
+  const _SideCountChip({
+    required this.label,
+    required this.color,
+    required this.up,
+  });
 
   final String label;
   final Color color;
@@ -125,14 +134,20 @@ class _SideCountChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(up ? Icons.arrow_upward : Icons.arrow_downward,
-              size: 12, color: color),
+          Icon(
+            up ? Icons.arrow_upward : Icons.arrow_downward,
+            size: 12,
+            color: color,
+          ),
           const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  color: color,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -140,8 +155,18 @@ class _SideCountChip extends StatelessWidget {
 }
 
 const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 String _fmtTime(DateTime d) =>
@@ -195,8 +220,10 @@ class _TradeTile extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(_fmtTime(t.at),
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                _fmtTime(t.at),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),
@@ -215,8 +242,7 @@ class _AnalyticsCard extends ConsumerWidget {
     final equity = ref.watch(historyProvider).value ?? const <EquityPoint>[];
     final s = computeStats(trades: trades, equity: equity);
 
-    String pf(double v) =>
-        v >= 99 ? '∞' : v.toStringAsFixed(v >= 10 ? 1 : 2);
+    String pf(double v) => v >= 99 ? '∞' : v.toStringAsFixed(v >= 10 ? 1 : 2);
 
     return Card(
       child: Padding(
@@ -231,7 +257,9 @@ class _AnalyticsCard extends ConsumerWidget {
                 Expanded(
                   child: StatTile(
                     label: 'Win rate',
-                    value: s.hasTrades ? '${s.winRatePct.toStringAsFixed(0)}%' : '–',
+                    value: s.hasTrades
+                        ? '${s.winRatePct.toStringAsFixed(0)}%'
+                        : '–',
                     icon: Icons.emoji_events_outlined,
                     valueColor: s.winRatePct >= 50 ? TC.gain : TC.warn,
                   ),

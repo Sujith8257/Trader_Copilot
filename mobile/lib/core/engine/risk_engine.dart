@@ -28,9 +28,12 @@ class RiskConfig {
 }
 
 class RiskVerdict {
-  RiskVerdict({required this.allowed, List<String>? violations, List<String>? warnings})
-      : violations = violations ?? [],
-        warnings = warnings ?? [];
+  RiskVerdict({
+    required this.allowed,
+    List<String>? violations,
+    List<String>? warnings,
+  }) : violations = violations ?? [],
+       warnings = warnings ?? [];
 
   bool allowed;
   final List<String> violations;
@@ -44,10 +47,10 @@ class RiskVerdict {
   void warn(String message) => warnings.add(message);
 
   Map<String, dynamic> toMap() => {
-        'allowed': allowed,
-        'violations': violations,
-        'warnings': warnings,
-      };
+    'allowed': allowed,
+    'violations': violations,
+    'warnings': warnings,
+  };
 }
 
 class RiskEngine {
@@ -97,14 +100,18 @@ class RiskEngine {
     // 3. Available cash
     final cost = quantity * marketPrice;
     if (side == Side.buy && cost > account.cash) {
-      verdict.block('Insufficient cash: order needs ${_fmt(cost)} '
-          'but account has ${_fmt(account.cash)}.');
+      verdict.block(
+        'Insufficient cash: order needs ${_fmt(cost)} '
+        'but account has ${_fmt(account.cash)}.',
+      );
     }
 
     // 4. Max single-position notional
     if (cost > cfg.maxPositionNotional) {
-      verdict.block('Order notional ${_fmt(cost)} exceeds max position size '
-          '${_fmt(cfg.maxPositionNotional)}.');
+      verdict.block(
+        'Order notional ${_fmt(cost)} exceeds max position size '
+        '${_fmt(cfg.maxPositionNotional)}.',
+      );
     }
 
     // 5. Max open positions
@@ -119,9 +126,11 @@ class RiskEngine {
       final newExposure = account.grossExposure + cost;
       final equity = account.equity > 0 ? account.equity : 1e-9;
       if (newExposure / equity > cfg.maxPortfolioExposurePct) {
-        verdict.block('Portfolio exposure would reach '
-            '${(newExposure / equity * 100).toStringAsFixed(1)}% of equity '
-            '(limit ${(cfg.maxPortfolioExposurePct * 100).toStringAsFixed(0)}%).');
+        verdict.block(
+          'Portfolio exposure would reach '
+          '${(newExposure / equity * 100).toStringAsFixed(1)}% of equity '
+          '(limit ${(cfg.maxPortfolioExposurePct * 100).toStringAsFixed(0)}%).',
+        );
       }
     }
 
@@ -132,42 +141,54 @@ class RiskEngine {
     if (side == Side.buy) {
       final ref = entryPrice ?? marketPrice;
       if (stopLoss != null && stopLoss >= ref) {
-        verdict.block('For a BUY, stop-loss ($stopLoss) must be below the '
-            'entry reference (${ref.toStringAsFixed(2)}).');
+        verdict.block(
+          'For a BUY, stop-loss ($stopLoss) must be below the '
+          'entry reference (${ref.toStringAsFixed(2)}).',
+        );
       }
       if (takeProfit != null && takeProfit <= ref) {
-        verdict.block('For a BUY, take-profit ($takeProfit) must be above '
-            'the entry reference (${ref.toStringAsFixed(2)}).');
+        verdict.block(
+          'For a BUY, take-profit ($takeProfit) must be above '
+          'the entry reference (${ref.toStringAsFixed(2)}).',
+        );
       }
     } else {
       final pos = account.positions[sym];
       if (pos == null || pos.quantity < quantity) {
-        verdict.block('Cannot SELL $sym: you hold '
-            '${pos?.quantity ?? 0} but want to sell $quantity.');
+        verdict.block(
+          'Cannot SELL $sym: you hold '
+          '${pos?.quantity ?? 0} but want to sell $quantity.',
+        );
       }
     }
 
     // 8. Max trades per day
     if (account.tradesToday >= cfg.maxTradesPerDay) {
-      verdict.block('Daily trade limit reached '
-          '(${account.tradesToday}/${cfg.maxTradesPerDay}).');
+      verdict.block(
+        'Daily trade limit reached '
+        '(${account.tradesToday}/${cfg.maxTradesPerDay}).',
+      );
     }
 
     // 9. Max daily loss
     final dayEquity = account.dayStart > 0 ? account.dayStart : 1e-9;
     if (account.realizedPnlToday <= -dayEquity * cfg.maxDailyLossPct) {
-      verdict.block('Daily loss ${_fmt(account.realizedPnlToday)} exceeds '
-          '${(cfg.maxDailyLossPct * 100).toStringAsFixed(1)}% of day-start '
-          'equity (${_fmt(dayEquity)}).');
+      verdict.block(
+        'Daily loss ${_fmt(account.realizedPnlToday)} exceeds '
+        '${(cfg.maxDailyLossPct * 100).toStringAsFixed(1)}% of day-start '
+        'equity (${_fmt(dayEquity)}).',
+      );
     }
 
     // 10. Entry-vs-market deviation
     if (entryPrice != null && entryPrice > 0) {
       final deviation = (entryPrice - marketPrice).abs() / marketPrice;
       if (deviation > 0.02) {
-        verdict.block('Proposal entry ${entryPrice.toStringAsFixed(2)} '
-            'deviates ${(deviation * 100).toStringAsFixed(2)}% from market '
-            'price ${marketPrice.toStringAsFixed(2)} (limit 2%).');
+        verdict.block(
+          'Proposal entry ${entryPrice.toStringAsFixed(2)} '
+          'deviates ${(deviation * 100).toStringAsFixed(2)}% from market '
+          'price ${marketPrice.toStringAsFixed(2)} (limit 2%).',
+        );
       }
     }
 

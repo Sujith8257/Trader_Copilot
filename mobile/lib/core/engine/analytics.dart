@@ -90,7 +90,9 @@ PortfolioStats computeStats({
     winRatePct: pnls.isEmpty ? 0 : wins.length / pnls.length * 100,
     avgWin: wins.isEmpty ? 0 : grossWin / wins.length,
     avgLoss: losses.isEmpty ? 0 : grossLoss / losses.length,
-    profitFactor: grossLoss == 0 ? (grossWin > 0 ? 99 : 0) : grossWin / grossLoss,
+    profitFactor: grossLoss == 0
+        ? (grossWin > 0 ? 99 : 0)
+        : grossWin / grossLoss,
     maxDrawdownPct: maxDd,
     netRealizedPnl: pnls.fold(0.0, (a, b) => a + b),
     bestTrade: pnls.isEmpty ? 0 : pnls.reduce((a, b) => a > b ? a : b),
@@ -100,16 +102,20 @@ PortfolioStats computeStats({
 
 /// CSV export of the journal (shared to clipboard / files by the UI).
 String tradesCsv(List<ExecutedTrade> trades) {
-  final buf = StringBuffer('time,symbol,side,quantity,filled_price_inr,notional_inr\n');
+  final buf = StringBuffer(
+    'time,symbol,side,quantity,filled_price_inr,notional_inr\n',
+  );
   for (final t in trades) {
-    buf.writeln([
-      t.at.toIso8601String(),
-      t.symbol,
-      t.side.name.toUpperCase(),
-      t.quantity,
-      t.filledPrice.toStringAsFixed(2),
-      t.notional.toStringAsFixed(2),
-    ].join(','));
+    buf.writeln(
+      [
+        t.at.toIso8601String(),
+        t.symbol,
+        t.side.name.toUpperCase(),
+        t.quantity,
+        t.filledPrice.toStringAsFixed(2),
+        t.notional.toStringAsFixed(2),
+      ].join(','),
+    );
   }
   return buf.toString();
 }

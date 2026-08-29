@@ -16,12 +16,14 @@ final startupPrefsProvider = FutureProvider<bool>((ref) async {
 
 /// The on-phone trading engine — the app IS the backend now.
 /// Override this provider in tests with a stubbed service.
-final tradingServiceProvider =
-    Provider<TradingService>((ref) => TradingService.instance);
+final tradingServiceProvider = Provider<TradingService>(
+  (ref) => TradingService.instance,
+);
 
 /// One-time engine hydration (paper account + settings from secure storage).
-final engineReadyProvider =
-    FutureProvider<void>((ref) => ref.watch(tradingServiceProvider).ensureLoaded());
+final engineReadyProvider = FutureProvider<void>(
+  (ref) => ref.watch(tradingServiceProvider).ensureLoaded(),
+);
 
 /// TRADING MODE — Paper is the mandatory starting point.
 /// Live unlocks once Coinbase credentials are configured in Settings.
@@ -32,9 +34,9 @@ class TradingModeNotifier extends Notifier<AccountMode> {
   void set(AccountMode mode) => state = mode;
 }
 
-final tradingModeProvider =
-    NotifierProvider<TradingModeNotifier, AccountMode>(
-        TradingModeNotifier.new);
+final tradingModeProvider = NotifierProvider<TradingModeNotifier, AccountMode>(
+  TradingModeNotifier.new,
+);
 
 /// Crypto is the app's market: LIVE Coinbase data only, 24/7.
 final marketProvider = Provider<Market>((ref) => Market.crypto);
@@ -48,7 +50,9 @@ final accountProvider = FutureProvider.autoDispose<AccountState>((ref) async {
   for (final sym in acct.positions.keys.toList()) {
     try {
       acct.mark(sym, await svc.market.last(sym));
-    } catch (_) {/* keep last known mark on fetch failure */}
+    } catch (_) {
+      /* keep last known mark on fetch failure */
+    }
   }
   return svc.paperAccount();
 });
@@ -61,9 +65,9 @@ class JournalNotifier extends Notifier<List<ExecutedTrade>> {
   void add(ExecutedTrade trade) => state = [...state, trade];
 }
 
-final journalProvider =
-    NotifierProvider<JournalNotifier, List<ExecutedTrade>>(
-        JournalNotifier.new);
+final journalProvider = NotifierProvider<JournalNotifier, List<ExecutedTrade>>(
+  JournalNotifier.new,
+);
 
 /// Selected tab of the shell (0 Portfolio, 1 Agent, 2 Copilot, 3 Journal).
 /// A provider so empty-state CTAs can navigate (e.g. "Open Copilot").
@@ -74,19 +78,22 @@ class TabIndexNotifier extends Notifier<int> {
   void set(int i) => state = i;
 }
 
-final tabIndexProvider =
-    NotifierProvider<TabIndexNotifier, int>(TabIndexNotifier.new);
+final tabIndexProvider = NotifierProvider<TabIndexNotifier, int>(
+  TabIndexNotifier.new,
+);
 
 /// Market overview rows for the AI Radar card — LIVE Coinbase data.
-final marketOverviewProvider =
-    FutureProvider.autoDispose<List<MarketRow>>((ref) async {
+final marketOverviewProvider = FutureProvider.autoDispose<List<MarketRow>>((
+  ref,
+) async {
   await ref.watch(engineReadyProvider.future);
   return ref.watch(tradingServiceProvider).marketOverview();
 });
 
 /// Equity curve of the paper account (per fill + a live mark-to-market point).
-final historyProvider =
-    FutureProvider.autoDispose<List<EquityPoint>>((ref) async {
+final historyProvider = FutureProvider.autoDispose<List<EquityPoint>>((
+  ref,
+) async {
   await ref.watch(engineReadyProvider.future);
   final svc = ref.watch(tradingServiceProvider);
   final points = [
@@ -144,13 +151,15 @@ class AutoRefreshNotifier extends Notifier<DateTime?> {
       ref.invalidate(historyProvider);
       final journal = ref.read(journalProvider.notifier);
       for (final (order, price) in tick.limitFills) {
-        journal.add(ExecutedTrade(
-          symbol: order.symbol,
-          side: order.side,
-          quantity: order.quantity,
-          filledPrice: price,
-          at: DateTime.now(),
-        ));
+        journal.add(
+          ExecutedTrade(
+            symbol: order.symbol,
+            side: order.side,
+            quantity: order.quantity,
+            filledPrice: price,
+            at: DateTime.now(),
+          ),
+        );
       }
       if (tick.alertsFired.isNotEmpty) {
         ref.read(unreadAlertsProvider.notifier).bump(tick.alertsFired.length);
@@ -165,8 +174,9 @@ class AutoRefreshNotifier extends Notifier<DateTime?> {
   }
 }
 
-final autoRefreshProvider =
-    NotifierProvider<AutoRefreshNotifier, DateTime?>(AutoRefreshNotifier.new);
+final autoRefreshProvider = NotifierProvider<AutoRefreshNotifier, DateTime?>(
+  AutoRefreshNotifier.new,
+);
 
 /// Count of alert fires the user has not seen (bell badge).
 class UnreadAlertsNotifier extends Notifier<int> {
@@ -176,8 +186,9 @@ class UnreadAlertsNotifier extends Notifier<int> {
   void clear() => state = 0;
 }
 
-final unreadAlertsProvider =
-    NotifierProvider<UnreadAlertsNotifier, int>(UnreadAlertsNotifier.new);
+final unreadAlertsProvider = NotifierProvider<UnreadAlertsNotifier, int>(
+  UnreadAlertsNotifier.new,
+);
 
 /// Alerts that fired in the most recent tick (drives the snackbar).
 class LastFiredAlertsNotifier extends Notifier<List<AlertRule>> {
@@ -188,7 +199,8 @@ class LastFiredAlertsNotifier extends Notifier<List<AlertRule>> {
 
 final lastFiredAlertsProvider =
     NotifierProvider<LastFiredAlertsNotifier, List<AlertRule>>(
-        LastFiredAlertsNotifier.new);
+      LastFiredAlertsNotifier.new,
+    );
 
 /// The alert rule list (persisted via AlertEngine).
 class AlertsNotifier extends Notifier<List<AlertRule>> {
@@ -223,8 +235,9 @@ class AlertsNotifier extends Notifier<List<AlertRule>> {
   }
 }
 
-final alertsProvider =
-    NotifierProvider<AlertsNotifier, List<AlertRule>>(AlertsNotifier.new);
+final alertsProvider = NotifierProvider<AlertsNotifier, List<AlertRule>>(
+  AlertsNotifier.new,
+);
 
 // ---------------------------------------------------------------------------
 // Watchlist — pinned symbols on the dashboard (persisted).
@@ -253,15 +266,17 @@ class WatchlistNotifier extends Notifier<Set<String>> {
   }
 }
 
-final watchlistProvider =
-    NotifierProvider<WatchlistNotifier, Set<String>>(WatchlistNotifier.new);
+final watchlistProvider = NotifierProvider<WatchlistNotifier, Set<String>>(
+  WatchlistNotifier.new,
+);
 
 // ---------------------------------------------------------------------------
 // News — real headlines via DuckDuckGo (the agent's own web_search tool).
 // ---------------------------------------------------------------------------
 
-final newsProvider = FutureProvider.autoDispose<List<Map<String, String>>>(
-    (ref) async {
+final newsProvider = FutureProvider.autoDispose<List<Map<String, String>>>((
+  ref,
+) async {
   await ref.watch(engineReadyProvider.future);
   return ref.watch(tradingServiceProvider).news();
 });
@@ -272,13 +287,14 @@ final newsProvider = FutureProvider.autoDispose<List<Map<String, String>>>(
 // ---------------------------------------------------------------------------
 
 class AutopilotState {
-  const AutopilotState(
-      {this.enabled = false,
-      this.intervalMinutes = 15,
-      this.goal =
-          'Grow the paper portfolio with disciplined, moderate-risk entries.',
-      this.running = false,
-      this.lastRun});
+  const AutopilotState({
+    this.enabled = false,
+    this.intervalMinutes = 15,
+    this.goal =
+        'Grow the paper portfolio with disciplined, moderate-risk entries.',
+    this.running = false,
+    this.lastRun,
+  });
   final bool enabled;
   final int intervalMinutes;
   final String goal;
@@ -291,14 +307,13 @@ class AutopilotState {
     String? goal,
     bool? running,
     DateTime? lastRun,
-  }) =>
-      AutopilotState(
-        enabled: enabled ?? this.enabled,
-        intervalMinutes: intervalMinutes ?? this.intervalMinutes,
-        goal: goal ?? this.goal,
-        running: running ?? this.running,
-        lastRun: lastRun ?? this.lastRun,
-      );
+  }) => AutopilotState(
+    enabled: enabled ?? this.enabled,
+    intervalMinutes: intervalMinutes ?? this.intervalMinutes,
+    goal: goal ?? this.goal,
+    running: running ?? this.running,
+    lastRun: lastRun ?? this.lastRun,
+  );
 }
 
 class AutopilotNotifier extends Notifier<AutopilotState> {
@@ -316,7 +331,9 @@ class AutopilotNotifier extends Notifier<AutopilotState> {
     state = state.copyWith(enabled: on, running: false);
     if (on) {
       _timer = Timer.periodic(
-          Duration(minutes: state.intervalMinutes), (_) => runOnce());
+        Duration(minutes: state.intervalMinutes),
+        (_) => runOnce(),
+      );
       Future.delayed(const Duration(seconds: 2), runOnce);
     }
   }
@@ -336,15 +353,17 @@ class AutopilotNotifier extends Notifier<AutopilotState> {
       final result = await svc.runCrew(state.goal);
       ref.read(pendingProposalsProvider.notifier).addAll(result.proposals);
       ref.invalidate(accountProvider);
-    } catch (_) {/* keep autopilot alive on network errors */
+    } catch (_) {
+      /* keep autopilot alive on network errors */
     } finally {
       state = state.copyWith(running: false, lastRun: DateTime.now());
     }
   }
 }
 
-final autopilotProvider =
-    NotifierProvider<AutopilotNotifier, AutopilotState>(AutopilotNotifier.new);
+final autopilotProvider = NotifierProvider<AutopilotNotifier, AutopilotState>(
+  AutopilotNotifier.new,
+);
 
 /// Proposals waiting for the user's decision (autopilot queue).
 class PendingProposalsNotifier extends Notifier<List<Object>> {
@@ -359,5 +378,5 @@ class PendingProposalsNotifier extends Notifier<List<Object>> {
 
 final pendingProposalsProvider =
     NotifierProvider<PendingProposalsNotifier, List<Object>>(
-        PendingProposalsNotifier.new);
-
+      PendingProposalsNotifier.new,
+    );

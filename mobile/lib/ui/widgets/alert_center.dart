@@ -57,18 +57,25 @@ class _AlertSheetState extends ConsumerState<_AlertSheet> {
   Future<void> _create() async {
     final v = double.tryParse(_value.text.trim());
     if (v == null || v <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Enter a valid threshold value.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid threshold value.')),
+      );
       return;
     }
     HapticFeedback.selectionClick();
-    await ref.read(alertsProvider.notifier).add(
-        symbol: _symbol, metric: _metric, op: _op, value: v);
+    await ref
+        .read(alertsProvider.notifier)
+        .add(symbol: _symbol, metric: _metric, op: _op, value: v);
     _value.clear();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Alert created: '
-              '$_symbol ${_metric.name} ${_op.name} $v')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Alert created: '
+            '$_symbol ${_metric.name} ${_op.name} $v',
+          ),
+        ),
+      );
     }
   }
 
@@ -77,29 +84,37 @@ class _AlertSheetState extends ConsumerState<_AlertSheet> {
     final rules = ref.watch(alertsProvider);
     return SafeArea(
       child: Padding(
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: Container(
           constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.85),
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
           padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Price & indicator alerts',
-                  style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Price & indicator alerts',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 4),
-              Text('Checked every 30s against LIVE Coinbase data.',
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                'Checked every 30s against LIVE Coinbase data.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 12),
               Flexible(
                 child: rules.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Text('No alerts yet. Create one below.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            textAlign: TextAlign.center),
+                        child: Text(
+                          'No alerts yet. Create one below.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                          textAlign: TextAlign.center,
+                        ),
                       )
                     : ListView(
                         shrinkWrap: true,
@@ -113,12 +128,16 @@ class _AlertSheetState extends ConsumerState<_AlertSheet> {
                                 color: TC.info,
                               ),
                               title: Text(r.describe()),
-                              subtitle: Text(r.triggeredOnce
-                                  ? 'Triggered — re-arms on next crossing'
-                                  : 'Watching…'),
+                              subtitle: Text(
+                                r.triggeredOnce
+                                    ? 'Triggered — re-arms on next crossing'
+                                    : 'Watching…',
+                              ),
                               trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    size: 20),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                ),
                                 onPressed: () {
                                   HapticFeedback.selectionClick();
                                   ref
@@ -217,8 +236,9 @@ class _AlertForm extends StatelessWidget {
           controller: value,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            hintText:
-                metric == AlertMetric.price ? 'Price in ₹ (e.g. 5400000)' : 'RSI value (e.g. 70)',
+            hintText: metric == AlertMetric.price
+                ? 'Price in ₹ (e.g. 5400000)'
+                : 'RSI value (e.g. 70)',
           ),
         ),
         const SizedBox(height: 12),

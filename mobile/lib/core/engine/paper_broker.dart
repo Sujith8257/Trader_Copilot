@@ -23,18 +23,18 @@ class EnginePosition {
   double get unrealizedPnl => (currentPrice - avgPrice) * quantity;
 
   Map<String, dynamic> toMap() => {
-        'symbol': symbol,
-        'quantity': quantity,
-        'avg_price': avgPrice,
-        'current_price': currentPrice,
-      };
+    'symbol': symbol,
+    'quantity': quantity,
+    'avg_price': avgPrice,
+    'current_price': currentPrice,
+  };
 
   static EnginePosition fromMap(Map<String, dynamic> m) => EnginePosition(
-        symbol: m['symbol'] as String,
-        quantity: (m['quantity'] as num).toDouble(),
-        avgPrice: (m['avg_price'] as num).toDouble(),
-        currentPrice: (m['current_price'] as num?)?.toDouble() ?? 0,
-      );
+    symbol: m['symbol'] as String,
+    quantity: (m['quantity'] as num).toDouble(),
+    avgPrice: (m['avg_price'] as num).toDouble(),
+    currentPrice: (m['current_price'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 /// Engine-side account: cash + positions + intraday counters + equity curve.
@@ -47,8 +47,8 @@ class EngineAccount {
     this.tradesToday = 0,
     Map<String, EnginePosition>? positions,
     List<Map<String, dynamic>>? equityHistory,
-  })  : positions = positions ?? {},
-        equityHistory = equityHistory ?? [];
+  }) : positions = positions ?? {},
+       equityHistory = equityHistory ?? [];
 
   final String accountId;
   double cash;
@@ -76,31 +76,32 @@ class EngineAccount {
   }
 
   Map<String, dynamic> toMap() => {
-        'account_id': accountId,
-        'cash': cash,
-        'day_start': dayStart,
-        'realized_pnl_today': realizedPnlToday,
-        'trades_today': tradesToday,
-        'positions': [for (final p in positions.values) p.toMap()],
-        'equity_history': equityHistory,
-      };
+    'account_id': accountId,
+    'cash': cash,
+    'day_start': dayStart,
+    'realized_pnl_today': realizedPnlToday,
+    'trades_today': tradesToday,
+    'positions': [for (final p in positions.values) p.toMap()],
+    'equity_history': equityHistory,
+  };
 
   static EngineAccount fromMap(Map<String, dynamic> m) => EngineAccount(
-        accountId: m['account_id'] as String,
-        cash: (m['cash'] as num).toDouble(),
-        dayStart: (m['day_start'] as num?)?.toDouble() ?? 0,
-        realizedPnlToday: (m['realized_pnl_today'] as num?)?.toDouble() ?? 0,
-        tradesToday: (m['trades_today'] as num?)?.toInt() ?? 0,
-        positions: {
-          for (final p in (m['positions'] as List? ?? []))
-            (p as Map<String, dynamic>)['symbol'] as String:
-                EnginePosition.fromMap(p),
-        },
-        equityHistory: [
-          for (final e in (m['equity_history'] as List? ?? []))
-            Map<String, dynamic>.from(e as Map),
-        ],
-      );
+    accountId: m['account_id'] as String,
+    cash: (m['cash'] as num).toDouble(),
+    dayStart: (m['day_start'] as num?)?.toDouble() ?? 0,
+    realizedPnlToday: (m['realized_pnl_today'] as num?)?.toDouble() ?? 0,
+    tradesToday: (m['trades_today'] as num?)?.toInt() ?? 0,
+    positions: {
+      for (final p in (m['positions'] as List? ?? []))
+        (p as Map<String, dynamic>)['symbol'] as String: EnginePosition.fromMap(
+          p,
+        ),
+    },
+    equityHistory: [
+      for (final e in (m['equity_history'] as List? ?? []))
+        Map<String, dynamic>.from(e as Map),
+    ],
+  );
 }
 
 class FillResult {
@@ -129,33 +130,32 @@ class LimitOrder {
   final double limitPrice;
   final DateTime createdAt;
 
-  bool crosses(double marketPrice) => side == Side.buy
-      ? marketPrice <= limitPrice
-      : marketPrice >= limitPrice;
+  bool crosses(double marketPrice) =>
+      side == Side.buy ? marketPrice <= limitPrice : marketPrice >= limitPrice;
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'symbol': symbol,
-        'side': side.name,
-        'quantity': quantity,
-        'limit_price': limitPrice,
-        'created_at': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'symbol': symbol,
+    'side': side.name,
+    'quantity': quantity,
+    'limit_price': limitPrice,
+    'created_at': createdAt.toIso8601String(),
+  };
 
   static LimitOrder fromMap(Map<String, dynamic> m) => LimitOrder(
-        id: m['id'] as String,
-        symbol: m['symbol'] as String,
-        side: (m['side'] as String? ?? 'buy') == 'sell' ? Side.sell : Side.buy,
-        quantity: (m['quantity'] as num).toDouble(),
-        limitPrice: (m['limit_price'] as num).toDouble(),
-        createdAt: DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
-      );
+    id: m['id'] as String,
+    symbol: m['symbol'] as String,
+    side: (m['side'] as String? ?? 'buy') == 'sell' ? Side.sell : Side.buy,
+    quantity: (m['quantity'] as num).toDouble(),
+    limitPrice: (m['limit_price'] as num).toDouble(),
+    createdAt:
+        DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
+  );
 }
-
 
 class PaperBroker {
   PaperBroker({required String accountId, double initialCash = 1000000})
-      : account = EngineAccount(accountId: accountId) {
+    : account = EngineAccount(accountId: accountId) {
     account.cash = initialCash;
     account.dayStart = initialCash;
     account.pushEquityPoint(DateTime.now().toUtc());
@@ -163,7 +163,7 @@ class PaperBroker {
 
   /// Rehydrate from persistence (shared_preferences JSON snapshot).
   PaperBroker.fromMap(Map<String, dynamic> m)
-      : account = EngineAccount.fromMap(m);
+    : account = EngineAccount.fromMap(m);
 
   final EngineAccount account;
 
@@ -172,9 +172,9 @@ class PaperBroker {
 
   /// Full persistence snapshot: account + resting limits.
   Map<String, dynamic> toSnapshot() => {
-        ...account.toMap(),
-        'limit_orders': [for (final o in limitOrders) o.toMap()],
-      };
+    ...account.toMap(),
+    'limit_orders': [for (final o in limitOrders) o.toMap()],
+  };
 
   static PaperBroker fromSnapshot(Map<String, dynamic> m) {
     final b = PaperBroker.fromMap(m);
@@ -205,14 +205,16 @@ class PaperBroker {
         return FillResult(filled: false, reason: 'not enough $symbol to sell');
       }
     }
-    limitOrders.add(LimitOrder(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      symbol: symbol.toUpperCase(),
-      side: side,
-      quantity: quantity,
-      limitPrice: limitPrice,
-      createdAt: DateTime.now(),
-    ));
+    limitOrders.add(
+      LimitOrder(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        symbol: symbol.toUpperCase(),
+        side: side,
+        quantity: quantity,
+        limitPrice: limitPrice,
+        createdAt: DateTime.now(),
+      ),
+    );
     return FillResult(filled: true, price: null, reason: 'resting');
   }
 
@@ -261,10 +263,11 @@ class PaperBroker {
       final pos = account.positions[symbol];
       if (pos == null) {
         account.positions[symbol] = EnginePosition(
-            symbol: symbol,
-            quantity: quantity,
-            avgPrice: price,
-            currentPrice: price);
+          symbol: symbol,
+          quantity: quantity,
+          avgPrice: price,
+          currentPrice: price,
+        );
       } else {
         final total = pos.quantity + quantity;
         pos.avgPrice = (pos.avgPrice * pos.quantity + cost) / total;
@@ -306,8 +309,8 @@ class PaperBroker {
   /// Roll intraday counters on the first touch of a new UTC day.
   void rollDay(DateTime now) {
     if (account.equityHistory.isEmpty) return;
-    final last = DateTime.tryParse(
-            account.equityHistory.last['t'] as String? ?? '') ??
+    final last =
+        DateTime.tryParse(account.equityHistory.last['t'] as String? ?? '') ??
         now;
     if (last.toUtc().day != now.toUtc().day ||
         last.toUtc().month != now.toUtc().month ||

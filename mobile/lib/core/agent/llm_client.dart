@@ -14,39 +14,40 @@ enum BrainKind { localServer, openrouter, gemini, claude, groq, rule }
 /// Display metadata for the Settings picker.
 extension BrainKindX on BrainKind {
   String get label => switch (this) {
-        BrainKind.rule => 'Rule brain',
-        BrainKind.localServer => 'Local / Wi-Fi',
-        BrainKind.openrouter => 'OpenRouter',
-        BrainKind.gemini => 'Gemini',
-        BrainKind.claude => 'Claude',
-        BrainKind.groq => 'Groq',
-      };
+    BrainKind.rule => 'Rule brain',
+    BrainKind.localServer => 'Local / Wi-Fi',
+    BrainKind.openrouter => 'OpenRouter',
+    BrainKind.gemini => 'Gemini',
+    BrainKind.claude => 'Claude',
+    BrainKind.groq => 'Groq',
+  };
 
   String get subtitle => switch (this) {
-        BrainKind.rule => 'Offline, no key needed',
-        BrainKind.localServer => 'llama-server / Ollama / LM Studio — Termux or the same Wi-Fi',
-        BrainKind.openrouter => 'One key, 300+ models (incl. free tiers)',
-        BrainKind.gemini => 'Google AI Studio free tier',
-        BrainKind.claude => 'Anthropic console key',
-        BrainKind.groq => 'Fastest free tier',
-      };
+    BrainKind.rule => 'Offline, no key needed',
+    BrainKind.localServer =>
+      'llama-server / Ollama / LM Studio — Termux or the same Wi-Fi',
+    BrainKind.openrouter => 'One key, 300+ models (incl. free tiers)',
+    BrainKind.gemini => 'Google AI Studio free tier',
+    BrainKind.claude => 'Anthropic console key',
+    BrainKind.groq => 'Fastest free tier',
+  };
 
   IconData get icon => switch (this) {
-        BrainKind.rule => Icons.psychology_alt_outlined,
-        BrainKind.localServer => Icons.lan_outlined,
-        BrainKind.openrouter => Icons.hub_outlined,
-        BrainKind.gemini => Icons.auto_awesome,
-        BrainKind.claude => Icons.terminal,
-        BrainKind.groq => Icons.bolt,
-      };
+    BrainKind.rule => Icons.psychology_alt_outlined,
+    BrainKind.localServer => Icons.lan_outlined,
+    BrainKind.openrouter => Icons.hub_outlined,
+    BrainKind.gemini => Icons.auto_awesome,
+    BrainKind.claude => Icons.terminal,
+    BrainKind.groq => Icons.bolt,
+  };
 
   String get keyHint => switch (this) {
-        BrainKind.openrouter => 'sk-or-v1-…',
-        BrainKind.gemini => 'AIza…',
-        BrainKind.claude => 'sk-ant-…',
-        BrainKind.groq => 'gsk_…',
-        _ => 'Optional',
-      };
+    BrainKind.openrouter => 'sk-or-v1-…',
+    BrainKind.gemini => 'AIza…',
+    BrainKind.claude => 'sk-ant-…',
+    BrainKind.groq => 'gsk_…',
+    _ => 'Optional',
+  };
 
   bool get needsKey =>
       this == BrainKind.openrouter ||
@@ -66,66 +67,76 @@ class BrainConfig {
   final BrainKind kind;
   final String baseUrl; // e.g. http://127.0.0.1:8080/v1 (Termux llama-server)
   final String apiKey;
-  final String model; // e.g. qwen3.5-9b (whatever llama-server was started with)
+  final String
+  model; // e.g. qwen3.5-9b (whatever llama-server was started with)
 
   bool get isLlm => kind != BrainKind.rule;
 
   /// Preset default URL/model per provider.
-  factory BrainConfig.defaults(BrainKind kind,
-      {String baseUrl = '', String apiKey = '', String model = ''}) {
+  factory BrainConfig.defaults(
+    BrainKind kind, {
+    String baseUrl = '',
+    String apiKey = '',
+    String model = '',
+  }) {
     switch (kind) {
       case BrainKind.localServer:
         return BrainConfig(
-            kind: kind,
-            baseUrl: baseUrl.isEmpty ? 'http://127.0.0.1:8080/v1' : baseUrl,
-            model: model.isEmpty ? 'qwen' : model);
+          kind: kind,
+          baseUrl: baseUrl.isEmpty ? 'http://127.0.0.1:8080/v1' : baseUrl,
+          model: model.isEmpty ? 'qwen' : model,
+        );
       case BrainKind.openrouter:
         return BrainConfig(
-            kind: kind,
-            baseUrl:
-                baseUrl.isEmpty ? 'https://openrouter.ai/api/v1' : baseUrl,
-            apiKey: apiKey,
-            model: model.isEmpty
-                ? 'anthropic/claude-3.5-haiku'
-                : model);
+          kind: kind,
+          baseUrl: baseUrl.isEmpty ? 'https://openrouter.ai/api/v1' : baseUrl,
+          apiKey: apiKey,
+          model: model.isEmpty ? 'anthropic/claude-3.5-haiku' : model,
+        );
       case BrainKind.gemini:
         return BrainConfig(
-            kind: kind,
-            baseUrl: baseUrl.isEmpty
-                ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-                : baseUrl,
-            apiKey: apiKey,
-            model: model.isEmpty ? 'gemini-2.0-flash' : model);
+          kind: kind,
+          baseUrl: baseUrl.isEmpty
+              ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+              : baseUrl,
+          apiKey: apiKey,
+          model: model.isEmpty ? 'gemini-2.0-flash' : model,
+        );
       case BrainKind.claude:
         return BrainConfig(
-            kind: kind,
-            baseUrl:
-                baseUrl.isEmpty ? 'https://api.anthropic.com/v1' : baseUrl,
-            apiKey: apiKey,
-            model: model.isEmpty ? 'claude-3-5-haiku-latest' : model);
+          kind: kind,
+          baseUrl: baseUrl.isEmpty ? 'https://api.anthropic.com/v1' : baseUrl,
+          apiKey: apiKey,
+          model: model.isEmpty ? 'claude-3-5-haiku-latest' : model,
+        );
       case BrainKind.groq:
         return BrainConfig(
-            kind: kind,
-            baseUrl:
-                baseUrl.isEmpty ? 'https://api.groq.com/openai/v1' : baseUrl,
-            apiKey: apiKey,
-            model: model.isEmpty ? 'llama-3.3-70b-versatile' : model);
+          kind: kind,
+          baseUrl: baseUrl.isEmpty ? 'https://api.groq.com/openai/v1' : baseUrl,
+          apiKey: apiKey,
+          model: model.isEmpty ? 'llama-3.3-70b-versatile' : model,
+        );
       case BrainKind.rule:
         return const BrainConfig(kind: BrainKind.rule);
     }
   }
 
-  Map<String, dynamic> toMap() =>
-      {'kind': kind.name, 'base_url': baseUrl, 'api_key': apiKey, 'model': model};
+  Map<String, dynamic> toMap() => {
+    'kind': kind.name,
+    'base_url': baseUrl,
+    'api_key': apiKey,
+    'model': model,
+  };
 
   static BrainConfig fromMap(Map<String, dynamic> m) => BrainConfig(
-        kind: BrainKind.values.firstWhere(
-            (k) => k.name == m['kind'],
-            orElse: () => BrainKind.rule),
-        baseUrl: (m['base_url'] as String?) ?? '',
-        apiKey: (m['api_key'] as String?) ?? '',
-        model: (m['model'] as String?) ?? '',
-      );
+    kind: BrainKind.values.firstWhere(
+      (k) => k.name == m['kind'],
+      orElse: () => BrainKind.rule,
+    ),
+    baseUrl: (m['base_url'] as String?) ?? '',
+    apiKey: (m['api_key'] as String?) ?? '',
+    model: (m['model'] as String?) ?? '',
+  );
 }
 
 class ChatMessage {
@@ -163,8 +174,9 @@ class LlmClient {
     if (!brain.isLlm) {
       throw LlmException('No LLM brain configured (rule mode).');
     }
-    final base =
-        brain.baseUrl.endsWith('/') ? brain.baseUrl.substring(0, brain.baseUrl.length - 1) : brain.baseUrl;
+    final base = brain.baseUrl.endsWith('/')
+        ? brain.baseUrl.substring(0, brain.baseUrl.length - 1)
+        : brain.baseUrl;
     final uri = Uri.parse('$base/chat/completions');
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -181,13 +193,17 @@ class LlmClient {
     });
     final http.Response r;
     try {
-      r = await _client.post(uri, headers: headers, body: body).timeout(timeout);
+      r = await _client
+          .post(uri, headers: headers, body: body)
+          .timeout(timeout);
     } catch (e) {
       throw LlmException('LLM unreachable at ${brain.baseUrl}: $e');
     }
     if (r.statusCode >= 400) {
-      throw LlmException('LLM ${r.statusCode}: '
-          '${r.body.length > 220 ? r.body.substring(0, 220) : r.body}');
+      throw LlmException(
+        'LLM ${r.statusCode}: '
+        '${r.body.length > 220 ? r.body.substring(0, 220) : r.body}',
+      );
     }
     try {
       final decoded = jsonDecode(r.body) as Map<String, dynamic>;
@@ -203,12 +219,12 @@ class LlmClient {
 
   /// Quick reachability probe for the Settings screen.
   Future<String> probe(BrainConfig brain) => chat(
-        [const ChatMessage.user('Reply with the single word: OK')],
-        brain: brain,
-        maxTokens: 8,
-        temperature: 0.0,
-        timeout: const Duration(seconds: 20),
-      );
+    [const ChatMessage.user('Reply with the single word: OK')],
+    brain: brain,
+    maxTokens: 8,
+    temperature: 0.0,
+    timeout: const Duration(seconds: 20),
+  );
 
   /// Extract the first JSON object from an LLM reply (handles ```json
   /// fences and surrounding prose).
@@ -236,7 +252,8 @@ class LlmClient {
         depth--;
         if (depth == 0) {
           try {
-            return jsonDecode(t.substring(start, i + 1)) as Map<String, dynamic>;
+            return jsonDecode(t.substring(start, i + 1))
+                as Map<String, dynamic>;
           } catch (_) {
             return null;
           }
