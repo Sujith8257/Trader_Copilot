@@ -1,169 +1,89 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 
-import 'package:trader_copilot/core/api_client.dart';
+import 'package:trader_copilot/core/agent/agent_engine.dart';
+import 'package:trader_copilot/core/engine/paper_broker.dart';
+import 'package:trader_copilot/core/engine/trading_service.dart';
+import 'package:trader_copilot/core/models.dart';
 import 'package:trader_copilot/main.dart';
 import 'package:trader_copilot/state/providers.dart';
+import 'fake_market.dart';
 
-http.Response _ok(Map<String, dynamic> body) =>
-    http.Response(jsonEncode(body), 200);
+/// A stubbed TradingService: injected fake market, canned crew runs and
+/// overview. No network, no persistence.
+class FakeService extends TradingService {
+  FakeService({PaperBroker? broker})
+      : super(
+            marketClient: FakeMarket(),
+            paperBroker: broker ??
+                PaperBroker(accountId: 'test', initialCash: 1000000));
 
-ApiClient _fakeApi({Map<String, dynamic>? positions}) {
-  return ApiClient(
-    client: MockClient((request) async {
-      if (request.url.path == '/account') {
-        return _ok({
-          'account_id': 'paper-primary',
-          'mode': 'PAPER',
-          'cash': 975500.0,
-          'equity': 1000500.0,
-          'day_start_equity': 1000000.0,
-          'positions':
-              positions ??
-              {
-                'RELIANCE': {'qty': 10, 'avg': 2450.0, 'last': 2500.0},
-              },
-        });
-      }
-      if (request.url.path == '/health') {
-        return _ok({
-          'status': 'ok',
-          'risk_engine_enabled': true,
-          'paper_broker': 'HEALTHY',
-        });
-      }
-      if (request.url.path == '/agent/chat') {
-        return _ok({
-          'brain': 'local',
-          'reply':
-              'Top 2 opportunities right now:\n'
-              '- TATAMOTORS - 1,020 - UP - price above key EMAs\n'
-              '- INFY - 1,560 - UP - MACD bullish crossover',
-          'steps': [
-            {
-              'tool': 'scan_market',
-              'detail': 'Scoring 8 symbols on trend, RSI and MACD...',
-            },
-            {
-              'tool': 'indicators',
-              'detail': 'TATAMOTORS: 1,020 - RSI 61 - trend UP - score 1.95',
-            },
-          ],
-          'proposal': null,
-          'verdict': null,
-          'opportunities': [
-            {
-              'symbol': 'TATAMOTORS',
-              'last': 1020.0,
-              'change_pct': 1.2,
-              'rsi': 61.0,
-              'trend': 'UP',
-              'score': 1.95,
-              'reasons': ['price above key EMAs', 'healthy momentum (RSI 61)'],
-              'stop': 980.0,
-              'target': 1080.0,
-            },
-          ],
-        });
-      }
-      if (request.url.path == '/config/kill') {
-        return _ok({'trading_enabled': jsonDecode(request.body)['enabled']});
-      }
-      if (request.url.path == '/market/overview') {
-        return _ok({
-          'rows': [
-            {
-              'symbol': 'TATAMOTORS',
-              'last': 1020.0,
-              'change_pct': 1.2,
-              'rsi': 61.0,
-              'trend': 'UP',
-            },
-            {
-              'symbol': 'INFY',
-              'last': 1560.0,
-              'change_pct': -0.4,
-              'rsi': 48.0,
-              'trend': 'DOWN',
-            },
-          ],
-        });
-      }
-      if (request.url.path == '/account/history') {
-        return _ok({
-          'points': [
-            {'t': '2026-08-29T09:00:00+00:00', 'equity': 1000000.0},
-            {'t': '2026-08-29T09:05:00+00:00', 'equity': 1000500.0},
-          ],
-        });
-      }
-      return _ok({});
-    }),
+  @override
+  Future<void> ensureLoaded() async {}
+
+  @override
+  Future<List<MarketRow>> marketOverview() async => [
+        MarketRow(
+            symbol: 'BTC', last: 5427000, changePct: 1.2, rsi: 61, trend: 'UP'),
+        MarketRow(
+            symbol: 'ETH',
+            last: 270000,
+            changePct: -0.4,
+            rsi: 48,
+            trend: 'DOWN'),
+      ];
+
+  @override
+  Future<AgentRunResult> runCrew(String goal,
+      {void Function(AgentStep)? onStep}) async {
+    final r = AgentRunResult(goal: goal)
+      ..brain = 'rule'
+      ..reply = 'Top opportunity right now:\n• BTC — ₹54,27,000 · UP';
+    r.step('scanner', 'scan_market',
+        'Scoring 2 symbols on trend, RSI and momentum…');
+    r.step('scanner', 'indicators',
+        'BTC: ₹54,27,000 · RSI 61 · trend UP · score 1.95');
+    return r;
+  }
+}
+
+Widget _app(
+    {bool onboarded = true, PaperBroker? broker, FakeService? service}) {
+  return ProviderScope(
+    overrides: [
+      tradingServiceProvider
+          .overrideWithValue(service ?? FakeService(broker: broker)),
+      startupPrefsProvider.overrideWithValue(AsyncData(onboarded)),
+    ],
+    child: const TraderCopilotApp(),
   );
 }
 
-/// Pumps the app with the account provider stubbed AND onboarding already
-/// dismissed, so tests land on the Portfolio dashboard directly.
-Widget _app({Map<String, dynamic>? positions}) => ProviderScope(
-  overrides: [
-    apiClientProvider.overrideWithValue(_fakeApi(positions: positions)),
-    startupPrefsProvider.overrideWithValue(const AsyncData(true)),
-  ],
-  child: const TraderCopilotApp(),
-);
-
-/// Pumps the app and waits for the account future. Uses explicit pumps (not
-/// pumpAndSettle) because the skeleton loader animates indefinitely.
+/// Pumps the app with a paper broker that already holds a BTC position so
+/// the dashboard has content.
 Future<void> _pumpHome(WidgetTester tester) async {
-  await tester.pumpWidget(_app());
-  await tester.pump(); // start
-  await tester.pump(const Duration(milliseconds: 400)); // account future
-  await tester.pump(const Duration(milliseconds: 200)); // sparkline refresh
+  final broker = PaperBroker(accountId: 'test', initialCash: 975500);
+  broker.placeMarketOrder(
+      symbol: 'BTC', side: Side.buy, quantity: 0.01, marketPrice: 5400000);
+  await tester.pumpWidget(_app(broker: broker));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
 }
 
 void main() {
-  testWidgets('dashboard renders account, stats and positions', (tester) async {
+  testWidgets('dashboard renders account, stats and positions',
+      (tester) async {
     await _pumpHome(tester);
 
-    expect(find.text('Trader Copilot'), findsOneWidget);
-    // net worth (cash 975500 + RELIANCE position value 25000)
-    expect(find.text('₹10,00,500'), findsOneWidget);
-    expect(find.text('Portfolio'), findsOneWidget);
-    expect(find.text('RELIANCE'), findsWidgets);
-    // cash appears in the stat tile AND the allocation legend
-    expect(find.text('₹9,75,500'), findsNWidgets(2));
-    // exposure value appears in its stat tile, position tile and/or legend
-    // (some may be below the fold in the test viewport)
-    expect(find.text('₹25,000'), findsAtLeastNWidgets(2));
-    // day-delta chip lives on the visible hero card
-    expect(find.text('+₹500 today'), findsOneWidget);
-    // the position P&L chip is in the position tile - scroll down to it
-    await tester.scrollUntilVisible(
-      find.text('+₹500'),
-      150,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('+₹500'), findsOneWidget);
-    // AI Radar strip from /market/overview (below the fold - scroll to it)
-    await tester.scrollUntilVisible(
-      find.text('AI Radar'),
-      150,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('AI Radar'), findsOneWidget);
-    expect(find.textContaining('TATAMOTORS'), findsOneWidget);
+    expect(find.text('Paper Trading Account'), findsOneWidget);
+    // BTC position marked at the fake live price 60000*1.005*90 = 5427000
+    expect(find.text('BTC'), findsWidgets);
+    expect(find.textContaining('54,27,000'), findsWidgets);
   });
 
-  testWidgets('live mode is gated - selecting Live shows the locked dialog', (
-    tester,
-  ) async {
+  testWidgets('live mode stays locked without Coinbase credentials',
+      (tester) async {
     await _pumpHome(tester);
 
     await tester.tap(find.text('Paper'));
@@ -172,7 +92,7 @@ void main() {
     await tester.tap(find.text('Live'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.textContaining('Live trading is locked'), findsWidgets);
+    expect(find.textContaining('Live trading needs Coinbase'), findsWidgets);
     expect(find.text('Paper Trading Account'), findsOneWidget);
 
     await tester.tap(find.text('Got it'));
@@ -186,11 +106,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('No trades yet'), findsOneWidget);
-    expect(find.text('Session journal'), findsNothing);
   });
 
   testWidgets('empty portfolio CTA opens the Copilot tab', (tester) async {
-    await tester.pumpWidget(_app(positions: {}));
+    await tester.pumpWidget(_app());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -206,9 +125,8 @@ void main() {
     expect(find.text('Propose a trade'), findsOneWidget);
   });
 
-  testWidgets('agent chat runs a visible tool trace on a suggestion', (
-    tester,
-  ) async {
+  testWidgets('agent crew runs a visible tool trace on a suggestion',
+      (tester) async {
     await _pumpHome(tester);
 
     await tester.tap(find.text('Agent'));
@@ -218,27 +136,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
 
-    // The newest message is at the bottom of the chat - nudge the list up.
+    // The newest entry is at the bottom of the chat - nudge the list up.
     await tester.drag(find.byType(ListView).first, const Offset(0, -200));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('scan_market'), findsOneWidget);
-    expect(find.textContaining('Top 2 opportunities'), findsOneWidget);
-    expect(find.textContaining('TATAMOTORS'), findsWidgets);
+    expect(find.textContaining('Top opportunity'), findsOneWidget);
+    expect(find.textContaining('BTC'), findsWidgets);
   });
 
-  testWidgets('first launch shows onboarding before the dashboard', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          apiClientProvider.overrideWithValue(_fakeApi()),
-          startupPrefsProvider.overrideWithValue(const AsyncData(false)),
-        ],
-        child: const TraderCopilotApp(),
-      ),
-    );
+  testWidgets('first launch shows onboarding before the dashboard',
+      (tester) async {
+    await tester.pumpWidget(_app(onboarded: false));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 

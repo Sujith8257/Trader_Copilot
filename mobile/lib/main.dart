@@ -8,6 +8,7 @@ import 'ui/screens/agent_screen.dart';
 import 'ui/screens/copilot_screen.dart';
 import 'ui/screens/journal_screen.dart';
 import 'ui/screens/onboarding_screen.dart';
+import 'ui/screens/settings_screen.dart';
 import 'ui/theme.dart';
 
 void main() => runApp(const ProviderScope(child: TraderCopilotApp()));
@@ -119,7 +120,7 @@ class HomeShell extends ConsumerWidget {
               Text('Trader Copilot'),
             ],
           ),
-          actions: const [ModeToggle()],
+          actions: const [_SettingsButton(), ModeToggle()],
         ),
         body: body,
         bottomNavigationBar: wide
@@ -164,8 +165,24 @@ class _BrandBadge extends StatelessWidget {
   }
 }
 
-/// Paper/Live mode chip. Live is intentionally gated — the switcher explains
-/// why, and selecting Live shows a locked dialog instead of switching.
+/// Opens the on-phone Settings: LLM brain, Coinbase credentials, risk config.
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Settings',
+      icon: const Icon(Icons.tune, size: 20),
+      onPressed: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+      ),
+    );
+  }
+}
+
+/// Paper/Live mode chip. Live unlocks once Coinbase credentials exist in
+/// Settings; otherwise the sheet explains what to do.
 class ModeToggle extends ConsumerWidget {
   const ModeToggle({super.key});
 
@@ -209,8 +226,10 @@ class ModeToggle extends ConsumerWidget {
   }
 
   void _showModeSheet(BuildContext context, WidgetRef ref) {
-    final mode = ref.read(tradingModeProvider);
-    bool tradingEnabled = true;
+    final mode = ref.watch(tradingModeProvider);
+    final coinbaseReady =
+        ref.watch(tradingServiceProvider).settings.coinbaseConfigured;
+    final killEnabled = ref.watch(killSwitchProvider);
     showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -222,7 +241,7 @@ class ModeToggle extends ConsumerWidget {
               ListTile(
                 leading: const Icon(Icons.science_outlined, color: TC.gain),
                 title: const Text('Paper'),
-                subtitle: const Text('₹10,00,000 virtual cash, real prices'),
+                subtitle: const Text('₹10,00,000 virtual cash, LIVE prices'),
                 trailing: mode == AccountMode.paper
                     ? const Icon(Icons.check, color: TC.gain)
                     : null,
@@ -232,12 +251,27 @@ class ModeToggle extends ConsumerWidget {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.lock_outline, color: TC.warn),
+                leading: Icon(
+                  coinbaseReady ? Icons.currency_bitcoin : Icons.lock_outline,
+                  color: coinbaseReady ? TC.warn : TC.onBgDim,
+                ),
                 title: const Text('Live'),
-                subtitle: const Text('Requires a broker pack — locked'),
+                subtitle: Text(coinbaseReady
+                    ? 'REAL Coinbase orders — double-check everything'
+                    : 'Add your Coinbase API key in Settings to unlock'),
+                trailing: mode == AccountMode.live
+                    ? const Icon(Icons.check, color: TC.warn)
+                    : null,
                 onTap: () {
-                  Navigator.of(context).pop();
-                  _showLockedDialog(context);
+                  if (coinbaseReady) {
+                    ref
+                        .read(tradingModeProvider.notifier)
+                        .set(AccountMode.live);
+                    Navigator.of(context).pop();
+                  } else {
+                    Navigator.of(context).pop();
+                    _showLockedDialog(context);
+                  }
                 },
               ),
               const Divider(),
@@ -246,11 +280,11 @@ class ModeToggle extends ConsumerWidget {
                 title: const Text('Trading enabled'),
                 subtitle: const Text(
                     'Kill switch — off blocks EVERY proposal, AI or manual'),
-                value: tradingEnabled,
+                value: killEnabled,
                 activeThumbColor: TC.gain,
                 onChanged: (v) {
-                  setState(() => tradingEnabled = v);
-                  ref.read(apiClientProvider).setKillSwitch(v);
+                  ref.read(tradingServiceProvider).risk.config.enabled = v;
+                  setState(() {});
                 },
               ),
             ],
@@ -271,11 +305,12 @@ class ModeToggle extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.lock_outline, color: TC.warn, size: 32),
-        title: const Text('Live trading is locked'),
+        title: const Text('Live trading needs Coinbase'),
         content: const Text(
-          'Live trading is locked until a broker pack is connected. '
-          'Learn in Paper mode first — every Trader Copilot account starts '
-          'with paper money so you can practice safely.',
+          'Live mode places REAL market orders through Coinbase Advanced '
+          'Trade. Open Settings (tune icon) and paste your CDP API key ID '
+          'and private key to unlock it. Until then, Paper mode gives you '
+          'the full agentic experience on live prices with virtual cash.',
         ),
         actions: [
           FilledButton(

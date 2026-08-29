@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/format.dart';
+import '../../core/agent/agent_engine.dart';
+import '../../core/engine/risk_engine.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
@@ -22,23 +23,22 @@ class CopilotScreen extends ConsumerStatefulWidget {
 
 class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _symbol = TextEditingController(text: 'RELIANCE');
-  final _quantity = TextEditingController(text: '10');
-  final _marketPrice = TextEditingController(text: '2450');
-  final _stopLoss = TextEditingController(text: '2400');
-  final _takeProfit = TextEditingController(text: '2550');
+  final _symbol = TextEditingController(text: 'BTC');
+  final _quantity = TextEditingController(text: '0.003');
+  final _stopLoss = TextEditingController();
+  final _takeProfit = TextEditingController();
 
   Side _side = Side.buy;
   double _confidence = 72; // percent
   bool _evaluating = false;
   bool _executing = false;
-  TradeProposal? _proposal;
-  RiskVerdict? _verdict;
+  double? _livePrice;
+  AgentProposal? _proposal;
   String? _error;
 
   @override
   void dispose() {
-    for (final c in [_symbol, _quantity, _marketPrice, _stopLoss, _takeProfit]) {
+    for (final c in [_symbol, _quantity, _stopLoss, _takeProfit]) {
       c.dispose();
     }
     super.dispose();
@@ -46,46 +46,63 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
 
   int get _step {
     if (_executing) return 3;
-    if (_verdict != null) return 2;
+    if (_proposal != null) return 2;
     if (_evaluating) return 1;
     return 0;
   }
 
-  TradeProposal _readProposal() {
-    return TradeProposal(
-      symbol: _symbol.text.trim().toUpperCase(),
-      side: _side,
-      quantity: double.parse(_quantity.text),
-      entryPrice: double.tryParse(_marketPrice.text),
-      stopLoss: double.tryParse(_stopLoss.text),
-      takeProfit: double.tryParse(_takeProfit.text),
-      rationale:
-          'Template rationale — the local LLM will generate this once the '
-          'on-device runtime is integrated.',
-      confidence: _confidence / 100,
-      source: 'ai',
-    );
+  /// Fetch the LIVE Coinbase price for the typed symbol.
+  Future<void> _fetchPrice() async {
+    final sym = _symbol.text.trim().toUpperCase();
+    if (sym.isEmpty) return;
+    setState(() => _error = null);
+    try {
+      final price =
+          await ref.read(tradingServiceProvider).market.last(sym);
+      setState(() => _livePrice = price);
+    } catch (e) {
+      setState(() {
+        _livePrice = null;
+        _error = 'Could not fetch the live price for $sym: $e';
+      });
+    }
   }
 
   Future<void> _evaluate() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_livePrice == null) {
+      await _fetchPrice();
+      if (_livePrice == null) return;
+    }
     setState(() {
       _evaluating = true;
       _error = null;
-      _verdict = null;
       _proposal = null;
     });
     try {
-      final proposal = _readProposal();
-      final verdict = await ref.read(apiClientProvider).evaluateProposal(
-            proposal,
-            marketPrice: double.parse(_marketPrice.text),
-            market: ref.read(marketProvider),
-          );
-      setState(() {
-        _proposal = proposal;
-        _verdict = verdict;
-      });
+      final svc = ref.read(tradingServiceProvider);
+      final p = AgentProposal(
+        symbol: _symbol.text.trim().toUpperCase(),
+        side: _side,
+        quantity: double.parse(_quantity.text),
+        marketPrice: _livePrice!,
+        stopLoss: double.tryParse(_stopLoss.text),
+        takeProfit: double.tryParse(_takeProfit.text),
+        rationale: 'Manual proposal — Risk Engine checked on-device.',
+        confidence: _confidence / 100,
+        verdict: svc.risk.evaluate(
+          symbol: _symbol.text.trim().toUpperCase(),
+          side: _side,
+          quantity: double.parse(_quantity.text),
+          marketPrice: _livePrice!,
+          account: svc.paper.account,
+          entryPrice: _livePrice!,
+          stopLoss: double.tryParse(_stopLoss.text),
+          takeProfit: double.tryParse(_takeProfit.text),
+          source: 'manual',
+        ),
+      );
+      setState(() => _proposal = p);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -94,60 +111,44 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   }
 
   Future<void> _approve() async {
-    final mode = ref.read(tradingModeProvider);
     final proposal = _proposal;
-    if (proposal == null || _verdict == null || !_verdict!.allowed) return;
-
-    if (mode == AccountMode.live) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Live execution is not connected yet — Paper only.'),
-      ));
-      return;
-    }
-
+    if (proposal == null || !proposal.verdict.allowed || _executing) return;
+    final mode = ref.read(tradingModeProvider);
     setState(() => _executing = true);
     try {
-      final result = await ref.read(apiClientProvider).placePaperOrder(
-            symbol: proposal.symbol,
-            side: proposal.side,
-            quantity: proposal.quantity,
-            marketPrice: double.parse(_marketPrice.text),
-            market: ref.read(marketProvider),
-          );
+      final exec =
+          await ref.read(tradingServiceProvider).execute(proposal, mode);
       if (!mounted) return;
-      ref.read(journalProvider.notifier).add(
-            ExecutedTrade(
+      if (exec.executed) {
+        ref.read(journalProvider.notifier).add(ExecutedTrade(
               symbol: proposal.symbol,
               side: proposal.side,
               quantity: proposal.quantity,
-              filledPrice: result.filledPrice ?? 0,
+              filledPrice: exec.fillPrice ?? proposal.marketPrice,
               at: DateTime.now(),
-            ),
-          );
-      ref.invalidate(accountProvider);
-      setState(() {
-        _proposal = null;
-        _verdict = null;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result.filled
-            ? 'Paper order FILLED: ${proposal.side.wire} '
-                '${proposal.quantity} ${proposal.symbol} @ '
-                '${formatINR(result.filledPrice ?? 0, decimals: 2)}'
-            : 'Order status: ${result.status}'),
-      ));
+            ));
+        ref.invalidate(accountProvider);
+        ref.invalidate(historyProvider);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${proposal.side.wire} ${proposal.quantity} '
+              '${proposal.symbol} filled at '
+              '₹${(exec.fillPrice ?? proposal.marketPrice).toStringAsFixed(2)}'),
+        ));
+        setState(() => _proposal = null);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Execution failed: $e')));
     } finally {
       if (mounted) setState(() => _executing = false);
     }
   }
 
   void _reject() {
-    setState(() {
-      _proposal = null;
-      _verdict = null;
-    });
+    setState(() => _proposal = null);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Proposal rejected. Nothing was executed.')),
     );
@@ -186,32 +187,42 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
             onSelectionChanged: (s) => setState(() => _side = s.first),
           ),
           const SizedBox(height: 14),
-          TextFormField(
-            controller: _symbol,
-            decoration: const InputDecoration(labelText: 'Symbol'),
-            textCapitalization: TextCapitalization.characters,
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Required' : null,
-          ),
+          Row(children: [
+            Expanded(
+              child: TextFormField(
+                controller: _symbol,
+                decoration: const InputDecoration(
+                    labelText: 'Symbol (e.g. BTC, ETH, SOL)'),
+                textCapitalization: TextCapitalization.characters,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: _fetchPrice,
+                icon: const Icon(Icons.bolt, size: 18),
+                label: const Text('Live price'),
+              ),
+            ),
+          ]),
+          if (_livePrice != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                'LIVE Coinbase: ₹${_livePrice!.toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(color: TC.gain, fontWeight: FontWeight.w800),
+              ),
+            ),
           const SizedBox(height: 12),
           Row(children: [
             Expanded(
               child: TextFormField(
                 controller: _quantity,
                 decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number,
-                validator: (v) =>
-                    (double.tryParse(v ?? '') ?? 0) > 0 ? 'Must be > 0' : null,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                controller: _marketPrice,
-                decoration: const InputDecoration(
-                  labelText: 'Market price',
-                  prefixText: '₹ ',
-                ),
                 keyboardType: TextInputType.number,
                 validator: (v) =>
                     (double.tryParse(v ?? '') ?? 0) > 0 ? 'Must be > 0' : null,
@@ -310,13 +321,28 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                   style: const TextStyle(color: TC.loss, fontSize: 13)),
             ),
           ],
-          if (_proposal != null && _verdict != null)
+          if (_proposal != null)
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 350),
               child: ProposalCard(
                 key: ValueKey(_proposal),
-                proposal: _proposal!,
-                verdict: _verdict!,
+                proposal: TradeProposal(
+                  symbol: _proposal!.symbol,
+                  side: _proposal!.side,
+                  quantity: _proposal!.quantity,
+                  entryPrice: _proposal!.marketPrice,
+                  stopLoss: _proposal!.stopLoss,
+                  takeProfit: _proposal!.takeProfit,
+                  rationale: _proposal!.rationale,
+                  confidence: _proposal!.confidence,
+                  source: 'manual',
+                ),
+                verdict: RiskVerdict(
+                  allowed: _proposal!.verdict.allowed,
+                  violations: _proposal!.verdict.violations,
+                  warnings: _proposal!.verdict.warnings,
+                ),
+                liveMode: ref.watch(tradingModeProvider) == AccountMode.live,
                 onApprove: _executing ? () {} : _approve,
                 onReject: _reject,
               ),

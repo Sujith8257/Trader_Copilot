@@ -30,10 +30,16 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
   }
 
   void _load() {
-    final market = ref.read(marketProvider);
-    _future = ref
-        .read(apiClientProvider)
-        .fetchCandles(widget.symbol, market: market, limit: 350);
+    final svc = ref.read(tradingServiceProvider);
+    _future = svc.ensureLoaded().then((_) async {
+      final bars = await svc.market.bars(widget.symbol);
+      return CandleSeries(
+        symbol: widget.symbol.toUpperCase(),
+        market: Market.crypto,
+        source: 'coinbase-live',
+        bars: bars,
+      );
+    });
   }
 
   @override

@@ -30,7 +30,7 @@ class DashboardScreen extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
-            const _MarketSwitcher(),
+            const _LiveSourceChip(),
             _HeroCard(account),
             const SizedBox(height: 16),
             _AllocationCard(account),
@@ -61,30 +61,31 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
-/// Stocks / Crypto switcher. Switching the market refetches the account,
-/// equity history and AI Radar (every provider watches marketProvider).
-class _MarketSwitcher extends ConsumerWidget {
-  const _MarketSwitcher();
+/// Crypto-only, LIVE-only: provenance chip for the data powering this app.
+class _LiveSourceChip extends ConsumerWidget {
+  const _LiveSourceChip();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final market = ref.watch(marketProvider);
-    return SegmentedButton<Market>(
-      segments: const [
-        ButtonSegment(
-          value: Market.stocks,
-          label: Text("Stocks"),
-          icon: Icon(Icons.show_chart, size: 16),
+    final error = ref.watch(tradingServiceProvider).market.lastError;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Chip(
+        avatar: Icon(
+          error == null ? Icons.bolt : Icons.wifi_off,
+          size: 14,
+          color: error == null ? TC.gain : TC.loss,
         ),
-        ButtonSegment(
-          value: Market.crypto,
-          label: Text("Crypto"),
-          icon: Icon(Icons.currency_bitcoin, size: 16),
+        label: Text(
+          error == null
+              ? 'LIVE Coinbase · crypto 24/7'
+              : 'Reconnecting to Coinbase…',
+          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
         ),
-      ],
-      selected: {market},
-      showSelectedIcon: false,
-      onSelectionChanged: (s) => ref.read(marketProvider.notifier).set(s.first),
+        visualDensity: VisualDensity.compact,
+        backgroundColor: TC.surface,
+        side: const BorderSide(color: TC.outline),
+      ),
     );
   }
 }
@@ -375,7 +376,7 @@ class _RadarCard extends ConsumerWidget {
         const SizedBox(height: 12),
         SectionHeader('AI Radar', trailing: 'tap a symbol for live charts'),
         SizedBox(
-          height: 112,
+          height: 124,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             clipBehavior: Clip.none,

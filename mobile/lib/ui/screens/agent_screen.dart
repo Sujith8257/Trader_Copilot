@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/format.dart';
+import '../../core/agent/agent_engine.dart';
+import '../../core/engine/risk_engine.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/proposal_card.dart';
 
-/// The agentic Copilot chat: the agent reasons over tools (market scan,
-/// indicators, account, propose + risk check) and shows its full trace.
-/// A proposal draft can be approved from right inside the conversation —
-/// but only after the deterministic Risk Engine allows it.
+/// The agentic Copilot chat: the on-phone crew (Scanner → Analyst →
+/// Strategist → Drafter) reasons over LIVE Coinbase tools and shows its
+/// full trace. A proposal draft can be approved from right inside the
+/// conversation — but only after the deterministic Risk Engine allows it.
 class AgentScreen extends ConsumerStatefulWidget {
   const AgentScreen({super.key});
 
@@ -18,41 +19,42 @@ class AgentScreen extends ConsumerStatefulWidget {
   ConsumerState<AgentScreen> createState() => _AgentScreenState();
 }
 
-class _ChatMessage {
-  _ChatMessage.user(this.text)
+class _Entry {
+  _Entry.user(this.text)
       : isUser = true,
-        reply = null;
+        result = null;
 
-  factory _ChatMessage.agent(AgentReply reply) =>
-      _ChatMessage._(false, reply.reply, reply);
-
-  _ChatMessage._(this.isUser, this.text, this.reply);
+  _Entry.result(this.result)
+      : isUser = false,
+        text = '';
 
   final bool isUser;
   final String text;
-  final AgentReply? reply;
+  final AgentRunResult? result;
 }
 
 class _AgentScreenState extends ConsumerState<AgentScreen> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
-  final _messages = <_ChatMessage>[
-    _ChatMessage.agent(AgentReply(
-      brain: 'local',
-      reply: 'Hi! I\'m your agentic trading copilot. I reason over real tools '
-          '— market scanner, technical indicators, your account, and the '
-          'Risk Engine. Ask me to scan the market, analyze a symbol, or '
-          'draft a checked proposal.',
-      steps: [],
-    )),
-  ];
+  final _entries = <_Entry>[_Entry.result(_greeting())];
   bool _sending = false;
+
+  static AgentRunResult _greeting() {
+    final r = AgentRunResult(goal: 'hello');
+    r.brain = 'rule';
+    r.reply = "Hi! I'm your agentic trading crew running fully on this phone "
+        'over LIVE Coinbase data. I scan the market, read the news, check '
+        'indicators and your account, and draft Risk-Engine-checked '
+        'proposals. Try "Scan the market" or set a goal like "grow the '
+        'paper account with moderate risk".';
+    return r;
+  }
 
   static const _suggestions = [
     'Scan the market',
-    'Analyze RELIANCE',
-    'Buy TCS',
-    'Show my portfolio',
+    'Find profit opportunities',
+    'Analyze BTC',
+    'Review my positions',
   ];
 
   @override
@@ -68,23 +70,27 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     _controller.clear();
     setState(() {
       _sending = true;
-      _messages.add(_ChatMessage.user(msg));
+      _entries.add(_Entry.user(msg));
+      _entries.add(_Entry.result(AgentRunResult(goal: msg)));
     });
     _scrollDown();
     try {
-      final reply = await ref
-          .read(apiClientProvider)
-          .agentChat(msg, market: ref.read(marketProvider));
-      setState(() => _messages.add(_ChatMessage.agent(reply)));
+      final result = await ref.read(tradingServiceProvider).runCrew(
+            msg,
+            onStep: (_) {
+              if (mounted) setState(() {}); // live tool trace
+            },
+          );
+      if (mounted) setState(() => _entries.last = _Entry.result(result));
     } catch (e) {
-      setState(() => _messages.add(_ChatMessage.agent(AgentReply(
-            brain: 'local',
-            reply: 'I couldn\'t reach my tools: $e\nIs the backend running? '
-                '(cd backend && uvicorn app.main:app --reload)',
-            steps: [],
-          ))));
+      if (mounted) {
+        final err = AgentRunResult(goal: msg)
+          ..reply = 'The crew hit an error: $e'
+          ..step('system', 'error', e.toString());
+        setState(() => _entries.last = _Entry.result(err));
+      }
     } finally {
-      setState(() => _sending = false);
+      if (mounted) setState(() => _sending = false);
       _scrollDown();
     }
   }
@@ -101,100 +107,69 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     });
   }
 
-  Future<void> _approveDraft(AgentReply reply) async {
-    final p = reply.proposal!;
-    try {
-      final result = await ref.read(apiClientProvider).placePaperOrder(
-            symbol: p.symbol,
-            side: p.side,
-            quantity: p.quantity,
-            marketPrice: p.entryPrice ?? 0,
-            market: ref.read(marketProvider),
-          );
-      if (!mounted) return;
-      ref.read(journalProvider.notifier).add(ExecutedTrade(
-            symbol: p.symbol,
-            side: p.side,
-            quantity: p.quantity,
-            filledPrice: result.filledPrice ?? 0,
-            at: DateTime.now(),
-          ));
-      ref.invalidate(accountProvider);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Paper order FILLED: ${p.side.wire} ${p.quantity} '
-            '${p.symbol} @ ${formatINR(result.filledPrice ?? 0, decimals: 2)}'),
-      ));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Order failed: $e')),
-        );
-      }
+  Future<void> _approveDraft(AgentRunResult result, AgentProposal p) async {
+    final mode = ref.read(tradingModeProvider);
+    final messenger = ScaffoldMessenger.of(context);
+    final exec = await ref.read(tradingServiceProvider).execute(p, mode);
+    if (!exec.executed) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+      return;
     }
+    if (!mounted) return;
+    ref.read(journalProvider.notifier).add(ExecutedTrade(
+          symbol: p.symbol,
+          side: p.side,
+          quantity: p.quantity,
+          filledPrice: exec.fillPrice ?? p.marketPrice,
+          at: DateTime.now(),
+        ));
+    ref.invalidate(accountProvider);
+    ref.invalidate(historyProvider);
+    messenger.showSnackBar(SnackBar(
+        content: Text('${p.side.wire} ${p.quantity} ${p.symbol} filled on '
+            '${mode == AccountMode.live ? "LIVE Coinbase" : "paper"} at '
+            '₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}')));
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final brainLabel = _messages.any((m) => m.reply?.brain == 'llm')
-        ? 'LLM brain'
-        : 'Local brain';
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Row(
-            children: [
-              Text('Agentic Copilot',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: TC.gain.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                      color: TC.gain.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.bolt, size: 12, color: TC.gain),
-                    const SizedBox(width: 4),
-                    Text(brainLabel,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: TC.gain)),
-                  ],
-                ),
-              ),
-            ],
+    return Scaffold(
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              itemCount: _entries.length,
+              itemBuilder: (context, i) {
+                final e = _entries[i];
+                return e.isUser
+                    ? _UserBubble(text: e.text)
+                    : _AgentCard(
+                        result: e.result!,
+                        onApprove: (p) => _approveDraft(e.result!, p),
+                      );
+              },
+            ),
           ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            controller: _scroll,
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            itemCount: _messages.length,
-            itemBuilder: (context, i) => _messages[i].isUser
-                ? _UserBubble(_messages[i].text)
-                : _AgentBubble(message: _messages[i], onApprove: _approveDraft),
-          ),
-        ),
-        _SuggestionBar(
-            suggestions: _suggestions, enabled: !_sending, onTap: _send),
-        _InputBar(
+          _SuggestionBar(
+              suggestions: _suggestions, enabled: !_sending, onTap: _send),
+          _InputBar(
             controller: _controller,
             enabled: !_sending,
             sending: _sending,
-            onSend: _send),
-      ],
+            onSend: _send,
+          ),
+        ],
+      ),
     );
   }
 }
-class _UserBubble extends StatelessWidget {
-  const _UserBubble(this.text);
 
+class _UserBubble extends StatelessWidget {
+  const _UserBubble({required this.text});
   final String text;
 
   @override
@@ -202,11 +177,15 @@ class _UserBubble extends StatelessWidget {
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.only(top: 10, left: 48),
+        margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        constraints:
+            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
-          color: TC.info.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(16),
+          color: TC.info.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(16)
+              .copyWith(bottomRight: const Radius.circular(4)),
+          border: Border.all(color: TC.info.withValues(alpha: 0.35)),
         ),
         child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
       ),
@@ -214,68 +193,111 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
-class _AgentBubble extends StatelessWidget {
-  const _AgentBubble({required this.message, required this.onApprove});
+/// Crew badge icons/colors per role.
+const Map<String, (IconData, Color)> _agentBadge = {
+  'scanner': (Icons.radar, TC.info),
+  'analyst': (Icons.query_stats, TC.gain),
+  'strategist': (Icons.psychology, TC.warn),
+  'drafter': (Icons.gavel, TC.loss),
+  'system': (Icons.settings, TC.onBgDim),
+};
 
-  final _ChatMessage message;
-  final void Function(AgentReply) onApprove;
+class _AgentCard extends ConsumerWidget {
+  const _AgentCard({required this.result, required this.onApprove});
+
+  final AgentRunResult result;
+  final void Function(AgentProposal) onApprove;
 
   @override
-  Widget build(BuildContext context) {
-    final reply = message.reply!;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(tradingModeProvider);
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(top: 10, right: 24),
+        margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
+        constraints:
+            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.88),
         decoration: BoxDecoration(
           color: TC.surface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(16)
+              .copyWith(bottomLeft: const Radius.circular(4)),
           border: Border.all(color: TC.outline),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final s in reply.steps)
+            Row(
+              children: [
+                const Icon(Icons.smart_toy, size: 15, color: TC.gain),
+                const SizedBox(width: 6),
+                Text('crew · ${result.brain}',
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: TC.onBgDim,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (final s in result.steps)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: TC.gain.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(s.tool,
-                          style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: TC.gain)),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: Builder(builder: (context) {
+                        final badge = _agentBadge[s.agent] ??
+                            (Icons.circle, TC.onBgDim);
+                        return Icon(badge.$1, size: 13, color: badge.$2);
+                      }),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(s.detail,
-                          style: Theme.of(context).textTheme.bodySmall),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.tool,
+                              style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: TC.onBgDim)),
+                          Text(s.detail,
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            if (reply.steps.isNotEmpty) ...[
-              const SizedBox(height: 4),
+            if (result.steps.isNotEmpty) ...[
               const Divider(),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
             ],
-            Text(reply.reply, style: Theme.of(context).textTheme.bodyMedium),
-            if (reply.hasDraft) ...[
+            Text(result.reply, style: Theme.of(context).textTheme.bodyMedium),
+            for (final p in result.proposals) ...[
               const SizedBox(height: 8),
               ProposalCard(
-                proposal: reply.proposal!,
-                verdict: reply.verdict!,
-                onApprove: () => onApprove(reply),
+                proposal: TradeProposal(
+                  symbol: p.symbol,
+                  side: p.side,
+                  quantity: p.quantity,
+                  entryPrice: p.marketPrice,
+                  stopLoss: p.stopLoss,
+                  takeProfit: p.takeProfit,
+                  rationale: p.rationale,
+                  confidence: p.confidence,
+                  source: 'ai',
+                ),
+                verdict: RiskVerdict(
+                  allowed: p.verdict.allowed,
+                  violations: p.verdict.violations,
+                  warnings: p.verdict.warnings,
+                ),
+                onApprove: p.allowed ? () => onApprove(p) : null,
                 onReject: () {},
+                liveMode: mode == AccountMode.live,
               ),
             ],
           ],
@@ -284,6 +306,7 @@ class _AgentBubble extends StatelessWidget {
     );
   }
 }
+
 class _SuggestionBar extends StatelessWidget {
   const _SuggestionBar({
     required this.suggestions,
@@ -346,7 +369,8 @@ class _InputBar extends StatelessWidget {
                 enabled: enabled,
                 textInputAction: TextInputAction.send,
                 onSubmitted: onSend,
-                decoration: const InputDecoration(hintText: 'Ask your copilot…'),
+                decoration:
+                    const InputDecoration(hintText: 'Give the crew a goal…'),
               ),
             ),
             const SizedBox(width: 10),
@@ -370,6 +394,3 @@ class _InputBar extends StatelessWidget {
     );
   }
 }
-
-
-

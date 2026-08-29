@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
+import '../../core/engine/risk_engine.dart';
 import '../theme.dart';
 
 /// The approval gate in UI form: AI proposal + deterministic verdict,
@@ -13,12 +14,16 @@ class ProposalCard extends StatelessWidget {
     required this.verdict,
     required this.onApprove,
     required this.onReject,
+    this.liveMode = false,
   });
 
   final TradeProposal proposal;
   final RiskVerdict verdict;
-  final VoidCallback onApprove;
+  final VoidCallback? onApprove;
   final VoidCallback onReject;
+
+  /// True when approval will place a REAL Coinbase order.
+  final bool liveMode;
 
   @override
   Widget build(BuildContext context) {
@@ -52,10 +57,14 @@ class ProposalCard extends StatelessWidget {
                       children: [
                         Text(
                           verdict.allowed
-                              ? 'Risk Engine: Allowed'
+                              ? (liveMode
+                                  ? 'Risk Engine: Allowed — LIVE order'
+                                  : 'Risk Engine: Allowed')
                               : 'Risk Engine: Blocked',
                           style: TextStyle(
-                            color: verdict.allowed ? TC.gain : TC.loss,
+                            color: verdict.allowed
+                                ? (liveMode ? TC.warn : TC.gain)
+                                : TC.loss,
                             fontWeight: FontWeight.w800,
                             fontSize: 15,
                           ),
