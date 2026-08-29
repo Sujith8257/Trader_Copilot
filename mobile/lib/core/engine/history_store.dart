@@ -82,6 +82,7 @@ class HistoryStore {
     required String reply,
     required List<List<String>> steps,
     required List<Map<String, dynamic>> proposals,
+    String? chatId,
   }) async {
     final sp = await _sp();
     final list = [
@@ -94,6 +95,7 @@ class HistoryStore {
         'reply': reply,
         'steps': steps,
         'proposals': proposals,
+        'chat_id': chatId,
         'at': DateTime.now().toIso8601String(),
       },
     ];

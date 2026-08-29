@@ -35,6 +35,36 @@ class AgentStep {
   };
 }
 
+/// A proactive trade idea: the crew scanned the live market on its own and
+/// picked this product. The user taps Trade → enters an amount → the Risk
+/// Engine sizes and gates the order before anything executes.
+class AgentSuggestion {
+  AgentSuggestion({
+    required this.symbol,
+    required this.price,
+    required this.rsi,
+    required this.trend,
+    required this.score,
+    required this.changePct,
+  });
+
+  final String symbol;
+  final double price;
+  final double? rsi;
+  final String trend; // UP | DOWN | FLAT
+  final double score;
+  final double changePct;
+
+  Map<String, dynamic> toMap() => {
+        'symbol': symbol,
+        'price': price,
+        'rsi': rsi,
+        'trend': trend,
+        'score': score,
+        'change_pct': changePct,
+      };
+}
+
 class AgentProposal {
   AgentProposal({
     required this.symbol,
@@ -78,6 +108,8 @@ class AgentRunResult {
   final String goal;
   final List<AgentStep> steps = [];
   final List<AgentProposal> proposals = [];
+  final List<AgentSuggestion> suggestions = [];
+  double? suggestedAmount; // ₹ amount the user mentioned in the goal, if any
   String reply = '';
   String brain = 'rule';
 
@@ -108,6 +140,17 @@ class TradingAgent {
     void Function(AgentStep)? onStep,
   }) async {
     final res = AgentRunResult(goal: goal);
+
+    // Suggestion intent: "suggest me a good position", "I want to invest
+    // ₹5000", "any ideas?" — the crew proactively picks 5-6 cryptos and the
+    // user trades any of them with one tap (amount asked in the UI).
+    if (_wantsSuggestions(goal)) {
+      res.suggestedAmount = _extractAmount(goal);
+      await _runSuggestions(res);
+      res.brain = 'rule';
+      return res;
+    }
+
     if (brain.isLlm) {
       try {
         await _runLlmCrew(goal, broker, brain, res, onStep);
@@ -364,6 +407,102 @@ class TradingAgent {
   /// Deterministic proposal drafting: position sizing from the risk config,
   /// ATR-based stop/target, then the Risk Engine verdict. Used by the LLM
   /// crew AND the rule brain — sizing is never left to the model.
+  /// Public: the Agent screen uses it to draft a proposal when the user
+  /// taps Trade on a proactive suggestion.
+  Future<AgentProposal?> draftProposalFor(
+    String symbol,
+    Side side,
+    PaperBroker broker, {
+    required String rationale,
+    double? confidence,
+  }) => _draftProposalAsync(
+        symbol,
+        side,
+        broker,
+        rationale: rationale,
+        confidence: confidence,
+      );
+
+  // ------------------------------------------------------------------ //
+  // Suggestion mode — "hey, find me a good position"                    //
+  // ------------------------------------------------------------------ //
+
+  static final RegExp _amountRe = RegExp(r'([\d][\d,]{2,}(?:\.\d+)?)');
+
+  static bool _wantsSuggestions(String goal) {
+    final g = goal.toLowerCase();
+    const kw = [
+      'suggest', 'recommend', 'good position', 'opportunit', 'idea',
+      'what should i', 'invest', 'deploy', 'picks', 'best coin',
+      'what to buy', 'good trade',
+    ];
+    if (kw.any(g.contains)) return true;
+    // an explicit amount with trade-ish words: "i have 5000 for trading"
+    return _amountRe.hasMatch(g) &&
+        RegExp(r'(trade|position|amount|buy|market)').hasMatch(g);
+  }
+
+  static double? _extractAmount(String goal) {
+    final m = _amountRe.firstMatch(goal);
+    if (m == null) return null;
+    final v = double.tryParse(m.group(1)!.replaceAll(',', ''));
+    return (v != null && v >= 100) ? v : null;
+  }
+
+  Future<void> _runSuggestions(AgentRunResult res) async {
+    res.step(
+      'scanner',
+      'scan_market',
+      'Scoring all ${market.symbols.length} live Coinbase products for '
+          'trade ideas…',
+    );
+    final scan = await toolScanMarket();
+    if (scan.isEmpty) {
+      res.reply = 'Could not reach live market data — check your internet '
+          'and try again.';
+      return;
+    }
+    // Prefer uptrends, but always fill 5-6 cards so the user has choice.
+    final up = scan.where((r) => r['trend'] == 'UP').toList();
+    final picks = (up.length >= 5 ? up : [
+      ...up,
+      ...scan.where((r) => r['trend'] != 'UP'),
+    ]).take(6).toList();
+
+    res.step(
+      'strategist',
+      'thought',
+      'Picked the top ${picks.length} scored products — user picks one, '
+          'the Risk Engine sizes the order from their amount.',
+    );
+    for (final t in picks) {
+      final s = AgentSuggestion(
+        symbol: t['symbol'] as String,
+        price: (t['last'] as num).toDouble(),
+        rsi: (t['rsi'] as num?)?.toDouble(),
+        trend: t['trend'] as String? ?? 'FLAT',
+        score: (t['score'] as num).toDouble(),
+        changePct: (t['change_pct'] as num?)?.toDouble() ?? 0,
+      );
+      res.suggestions.add(s);
+      res.step(
+        'scanner',
+        'idea',
+        '${s.symbol}: ₹${_round2(s.price)} · trend ${s.trend} · '
+            'RSI ${s.rsi?.toStringAsFixed(0) ?? '-'} · '
+            'score ${s.score.toStringAsFixed(2)}',
+      );
+    }
+    final amt = res.suggestedAmount;
+    res.reply = amt != null
+        ? 'Here are my top ${res.suggestions.length} ideas for your '
+            '₹${_round2(amt)} — tap TRADE on one and I will size the order '
+            'from your amount and run the Risk Engine before executing.'
+        : 'Here are my top ${res.suggestions.length} ideas right now — '
+            'tap TRADE on one, enter how much you want to put in, and the '
+            'Risk Engine will size and check the order.';
+  }
+
   Future<AgentProposal?> _draftProposalAsync(
     String symbol,
     Side side,

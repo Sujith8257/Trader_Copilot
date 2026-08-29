@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/engine/alerts.dart';
 import '../core/engine/trading_service.dart';
+import '../core/agent/agent_engine.dart';
 import '../core/models.dart';
 
 /// Whether the user has already seen the first-launch onboarding. Async because
@@ -408,3 +409,122 @@ final agentSessionsProvider =
   await ref.watch(engineReadyProvider.future);
   return ref.watch(tradingServiceProvider).history.loadSessions();
 });
+
+/// One message in the agent conversation. Either a user line, a live crew
+/// result, or a turn restored from persisted history (display-only — old
+/// proposals are never re-executable at stale prices).
+class ChatEntry {
+  ChatEntry.user(this.text)
+      : isUser = true,
+        result = null,
+        restored = null;
+
+  ChatEntry.result(this.result)
+      : isUser = false,
+        text = '',
+        restored = null;
+
+  ChatEntry.restored(this.restored)
+      : isUser = false,
+        text = '',
+        result = null;
+
+  final bool isUser;
+  final String text;
+  final AgentRunResult? result;
+  final Map<String, dynamic>? restored; // persisted session map
+}
+
+/// The agent conversation — held at PROVIDER scope so it survives tab
+/// switches and navigation for as long as the app process is alive (only
+/// swiping the app away from recents clears it).
+class AgentChatState {
+  const AgentChatState({
+    required this.entries,
+    required this.chatId,
+    this.sending = false,
+  });
+
+  final List<ChatEntry> entries;
+  final String chatId; // groups the turns of THIS conversation in history
+  final bool sending;
+}
+
+String _newChatId() =>
+    'chat-${DateTime.now().millisecondsSinceEpoch}';
+
+AgentRunResult _agentGreeting() {
+  final r = AgentRunResult(goal: 'hello');
+  r.brain = 'rule';
+  r.reply =
+      "Hi! I'm your agentic trading crew running fully on this phone "
+      'over LIVE Coinbase data. I scan the market, read the news, check '
+      'indicators and your account, and draft Risk-Engine-checked '
+      'proposals. Try "Scan the market", ask me to suggest a good '
+      'position with an amount like "invest 5000", or set a goal.';
+  return r;
+}
+
+class AgentChatNotifier extends Notifier<AgentChatState> {
+  @override
+  AgentChatState build() => AgentChatState(
+        entries: [ChatEntry.result(_agentGreeting())],
+        chatId: _newChatId(),
+      );
+
+  void addUser(String msg) {
+    state = AgentChatState(
+      entries: [...state.entries, ChatEntry.user(msg)],
+      chatId: state.chatId,
+      sending: state.sending,
+    );
+  }
+
+  /// Adds an empty result entry while the crew runs (live trace), or
+  /// replaces the last (still-running) entry with the final result.
+  void pushOrReplaceResult(AgentRunResult result) {
+    final entries = [...state.entries];
+    if (entries.isNotEmpty &&
+        !entries.last.isUser &&
+        entries.last.result != null &&
+        entries.last.result!.reply.isEmpty &&
+        entries.last.result!.steps.isEmpty) {
+      entries[entries.length - 1] = ChatEntry.result(result);
+    } else {
+      entries.add(ChatEntry.result(result));
+    }
+    state = AgentChatState(
+      entries: entries,
+      chatId: state.chatId,
+      sending: state.sending,
+    );
+  }
+
+  void setSending(bool v) => state = AgentChatState(
+        entries: state.entries,
+        chatId: state.chatId,
+        sending: v,
+      );
+
+  /// Opens a past conversation from the agent history: reconstructs the
+  /// turns (display-only) and continues under the SAME chat id, so new
+  /// messages append to that conversation in history too.
+  void openChat(List<Map<String, dynamic>> sessions, String chatId) {
+    final entries = <ChatEntry>[ChatEntry.result(_agentGreeting())];
+    for (final s in sessions) {
+      entries.add(ChatEntry.user(s['goal'] as String? ?? ''));
+      entries.add(ChatEntry.restored(s));
+    }
+    state = AgentChatState(entries: entries, chatId: chatId);
+  }
+
+  void newChat() => state = AgentChatState(
+        entries: [ChatEntry.result(_agentGreeting())],
+        chatId: _newChatId(),
+      );
+}
+
+final agentChatProvider =
+    NotifierProvider<AgentChatNotifier, AgentChatState>(
+  AgentChatNotifier.new,
+);

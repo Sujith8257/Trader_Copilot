@@ -11,8 +11,11 @@ import '../widgets/proposal_card.dart';
 
 /// The agentic Copilot chat: the on-phone crew (Scanner → Analyst →
 /// Strategist → Drafter) reasons over LIVE Coinbase tools and shows its
-/// full trace. A proposal draft can be approved from right inside the
-/// conversation — but only after the deterministic Risk Engine allows it.
+/// full trace. The conversation lives in `agentChatProvider` (app scope),
+/// so it survives tab switches and navigation — it only clears when the
+/// app process itself is killed (swipe from recents). Past conversations
+/// can be reopened from the agent history and CONTINUED; the crew can also
+/// proactively suggest 5-6 cryptos to trade with one tap.
 class AgentScreen extends ConsumerStatefulWidget {
   const AgentScreen({super.key});
 
@@ -20,37 +23,14 @@ class AgentScreen extends ConsumerStatefulWidget {
   ConsumerState<AgentScreen> createState() => _AgentScreenState();
 }
 
-class _Entry {
-  _Entry.user(this.text) : isUser = true, result = null;
-
-  _Entry.result(this.result) : isUser = false, text = '';
-
-  final bool isUser;
-  final String text;
-  final AgentRunResult? result;
-}
-
 class _AgentScreenState extends ConsumerState<AgentScreen> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
-  final _entries = <_Entry>[_Entry.result(_greeting())];
-  bool _sending = false;
-
-  static AgentRunResult _greeting() {
-    final r = AgentRunResult(goal: 'hello');
-    r.brain = 'rule';
-    r.reply =
-        "Hi! I'm your agentic trading crew running fully on this phone "
-        'over LIVE Coinbase data. I scan the market, read the news, check '
-        'indicators and your account, and draft Risk-Engine-checked '
-        'proposals. Try "Scan the market" or set a goal like "grow the '
-        'paper account with moderate risk".';
-    return r;
-  }
 
   static const _suggestions = [
     'Scan the market',
-    'Find profit opportunities',
+    'Suggest a good position',
+    'I want to invest 5000',
     'Analyze BTC',
     'Review my positions',
   ];
@@ -64,35 +44,85 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
 
   Future<void> _send(String text) async {
     final msg = text.trim();
-    if (msg.isEmpty || _sending) return;
+    if (msg.isEmpty) return;
+    final chat = ref.read(agentChatProvider.notifier);
+    final chatId = ref.read(agentChatProvider).chatId;
     _controller.clear();
-    setState(() {
-      _sending = true;
-      _entries.add(_Entry.user(msg));
-      _entries.add(_Entry.result(AgentRunResult(goal: msg)));
-    });
+    chat.addUser(msg);
+    chat.pushOrReplaceResult(AgentRunResult(goal: msg)); // placeholder card
+    chat.setSending(true);
     _scrollDown();
     try {
       final result = await ref
           .read(tradingServiceProvider)
-          .runCrew(
-            msg,
-            onStep: (_) {
-              if (mounted) setState(() {}); // live tool trace
-            },
-          );
-      if (mounted) setState(() => _entries.last = _Entry.result(result));
+          .runCrew(msg, chatId: chatId);
+      chat.pushOrReplaceResult(result);
     } catch (e) {
-      if (mounted) {
-        final err = AgentRunResult(goal: msg)
-          ..reply = 'The crew hit an error: $e'
-          ..step('system', 'error', e.toString());
-        setState(() => _entries.last = _Entry.result(err));
-      }
+      final err = AgentRunResult(goal: msg)
+        ..reply = 'The crew hit an error: $e'
+        ..step('system', 'error', e.toString());
+      chat.pushOrReplaceResult(err);
     } finally {
-      if (mounted) setState(() => _sending = false);
+      chat.setSending(false);
       _scrollDown();
     }
+  }
+
+  /// Trade button on a proactive suggestion: draft the proposal with the
+  /// deterministic sizer, ask the amount, then the Risk Engine gates it.
+  Future<void> _tradeSuggestion(AgentSuggestion s, double? amount) async {
+    final svc = ref.read(tradingServiceProvider);
+    final messenger = ScaffoldMessenger.of(context);
+    final p = await svc.draftProposal(s.symbol);
+    if (!mounted) return;
+    if (p == null) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Could not fetch the live price for ${s.symbol}.')));
+      return;
+    }
+    final chosen = await showAmountDialog(
+      context,
+      symbol: s.symbol,
+      side: Side.buy,
+      marketPrice: p.marketPrice,
+      suggestedAmount: amount ?? p.quantity * p.marketPrice,
+    );
+    if (chosen == null || !mounted) return;
+    final mode = ref.read(tradingModeProvider);
+    final exec = await svc.executeWithAmount(p, chosen, mode);
+    svc.history.addDecision(
+      symbol: s.symbol,
+      side: Side.buy.wire,
+      quantity: exec.executed
+          ? chosen / (exec.fillPrice ?? p.marketPrice)
+          : p.quantity,
+      price: exec.fillPrice ?? p.marketPrice,
+      mode: mode.name,
+      approved: exec.executed,
+      reason: exec.reason,
+      source: 'agent-idea',
+    );
+    ref.invalidate(decisionsProvider);
+    if (!exec.executed) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+      return;
+    }
+    if (!mounted) return;
+    ref.read(journalProvider.notifier).add(ExecutedTrade(
+          symbol: s.symbol,
+          side: Side.buy,
+          quantity: chosen / (exec.fillPrice ?? p.marketPrice),
+          filledPrice: exec.fillPrice ?? p.marketPrice,
+          at: DateTime.now(),
+        ));
+    ref.invalidate(accountProvider);
+    ref.invalidate(historyProvider);
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+          'buy ${chosen / (exec.fillPrice ?? p.marketPrice)} ${s.symbol} '
+          'filled at ₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}'),
+    ));
   }
 
   void _scrollDown() {
@@ -121,11 +151,12 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final svc = ref.read(tradingServiceProvider);
     final exec = await svc.executeWithAmount(p, amount, mode);
-    // Persist the decision (approved or blocked) for the copilot history.
     svc.history.addDecision(
       symbol: p.symbol,
       side: p.side.wire,
-      quantity: exec.executed ? amount / (exec.fillPrice ?? p.marketPrice) : p.quantity,
+      quantity: exec.executed
+          ? amount / (exec.fillPrice ?? p.marketPrice)
+          : p.quantity,
       price: exec.fillPrice ?? p.marketPrice,
       mode: mode.name,
       approved: exec.executed,
@@ -140,9 +171,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
       return;
     }
     if (!mounted) return;
-    ref
-        .read(journalProvider.notifier)
-        .add(
+    ref.read(journalProvider.notifier).add(
           ExecutedTrade(
             symbol: p.symbol,
             side: p.side,
@@ -167,46 +196,166 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(agentChatProvider, (_, _) => _scrollDown());
+    final chat = ref.watch(agentChatProvider);
+    final mode = ref.watch(tradingModeProvider);
     return Scaffold(
       body: Column(
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: TextButton.icon(
-                icon: const Icon(Icons.history, size: 18),
-                label: const Text('Agent history'),
-                onPressed: () => showAgentHistory(context, ref),
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('Agent history'),
+                  onPressed: () => showAgentHistory(context, ref),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.add_comment_outlined, size: 18),
+                  label: const Text('New chat'),
+                  onPressed: chat.sending
+                      ? null
+                      : () => ref.read(agentChatProvider.notifier).newChat(),
+                ),
+              ],
             ),
           ),
           Expanded(
             child: ListView.builder(
               controller: _scroll,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              itemCount: _entries.length,
+              itemCount: chat.entries.length,
               itemBuilder: (context, i) {
-                final e = _entries[i];
-                return e.isUser
-                    ? _UserBubble(text: e.text)
-                    : _AgentCard(
-                        result: e.result!,
-                        onApprove: (p) => _approveDraft(e.result!, p),
-                      );
+                final e = chat.entries[i];
+                if (e.isUser) return _UserBubble(text: e.text);
+                if (e.restored != null) {
+                  return _AgentCard(
+                    result: _resultFromSession(e.restored!),
+                    onApprove: (_) {},
+                    onTrade: null,
+                    suggestedAmount: null,
+                  );
+                }
+                return _AgentCard(
+                  result: e.result!,
+                  onApprove: (p) => _approveDraft(e.result!, p),
+                  onTrade: (s) =>
+                      _tradeSuggestion(s, e.result!.suggestedAmount),
+                  suggestedAmount: e.result!.suggestedAmount,
+                  working: chat.sending && i == chat.entries.length - 1,
+                  liveMode: mode == AccountMode.live,
+                );
               },
             ),
           ),
-          _SuggestionBar(
-            suggestions: _suggestions,
-            enabled: !_sending,
-            onTap: _send,
-          ),
           _InputBar(
             controller: _controller,
-            enabled: !_sending,
-            sending: _sending,
+            enabled: !chat.sending,
             onSend: _send,
+            chips: _suggestions,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Rebuilds a read-only view of a persisted session (no live proposals —
+  /// historical ones must never be re-executed at stale prices).
+  static AgentRunResult _resultFromSession(Map<String, dynamic> s) {
+    final r = AgentRunResult(goal: s['goal'] as String? ?? '');
+    r.brain = s['brain'] as String? ?? 'rule';
+    r.reply = s['reply'] as String? ?? '';
+    for (final st in (s['steps'] as List? ?? [])) {
+      final parts = (st as List).cast<String>();
+      if (parts.length >= 3) r.step(parts[0], parts[1], parts[2]);
+    }
+    final props = (s['proposals'] as List? ?? []);
+    if (props.isNotEmpty) {
+      r.reply = '${r.reply}\n\n${props.length} proposal(s) were drafted in '
+          'this turn — open a fresh goal to act on current prices.';
+    }
+    return r;
+  }
+}
+
+
+class _InputBar extends StatelessWidget {
+  const _InputBar({
+    required this.controller,
+    required this.enabled,
+    required this.onSend,
+    required this.chips,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+  final void Function(String) onSend;
+  final List<String> chips;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    enabled: enabled,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: onSend,
+                    decoration: InputDecoration(
+                      hintText: 'Ask the crew, or say "invest 5000"…',
+                      filled: true,
+                      fillColor: TC.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(22),
+                        borderSide: const BorderSide(color: TC.outline),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: TC.gain,
+                  child: IconButton(
+                    icon: const Icon(Icons.send,
+                        size: 18, color: Colors.black),
+                    onPressed:
+                        enabled ? () => onSend(controller.text) : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                for (final s in chips)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ActionChip(
+                      label: Text(s, style: const TextStyle(fontSize: 12)),
+                      onPressed: enabled ? () => onSend(s) : null,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -216,6 +365,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
 
 class _UserBubble extends StatelessWidget {
   const _UserBubble({required this.text});
+
   final String text;
 
   @override
@@ -223,16 +373,17 @@ class _UserBubble extends StatelessWidget {
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
+        margin: const EdgeInsets.only(bottom: 10, left: 60),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
-        ),
         decoration: BoxDecoration(
-          color: TC.info.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(16)
-              .copyWith(bottomRight: const Radius.circular(4)),
-          border: Border.all(color: TC.info.withValues(alpha: 0.35)),
+          color: TC.gain.withValues(alpha: 0.12),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(4),
+          ),
+          border: Border.all(color: TC.gain.withValues(alpha: 0.3)),
         ),
         child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
       ),
@@ -240,36 +391,47 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
-/// Crew badge icons/colors per role.
-const Map<String, (IconData, Color)> _agentBadge = {
-  'scanner': (Icons.radar, TC.info),
+const Map<String, (IconData, Color)> agentBadge = {
+  'scanner': (Icons.radar, TC.gain),
   'analyst': (Icons.query_stats, TC.gain),
-  'strategist': (Icons.psychology, TC.warn),
-  'drafter': (Icons.gavel, TC.loss),
+  'strategist': (Icons.psychology, TC.gain),
+  'drafter': (Icons.gavel, TC.gain),
   'system': (Icons.settings, TC.onBgDim),
 };
 
-class _AgentCard extends ConsumerWidget {
-  const _AgentCard({required this.result, required this.onApprove});
+class _AgentCard extends StatelessWidget {
+  const _AgentCard({
+    required this.result,
+    required this.onApprove,
+    required this.onTrade,
+    required this.suggestedAmount,
+    this.working = false,
+    this.liveMode = false,
+  });
 
   final AgentRunResult result;
   final void Function(AgentProposal) onApprove;
+  final void Function(AgentSuggestion)? onTrade;
+  final double? suggestedAmount;
+  final bool working;
+  final bool liveMode;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(tradingModeProvider);
+  Widget build(BuildContext context) {
+    final busy = working || (result.reply.isEmpty && result.steps.isEmpty);
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: 12, right: 40),
         padding: const EdgeInsets.all(14),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.88,
-        ),
         decoration: BoxDecoration(
           color: TC.surface,
-          borderRadius: BorderRadius.circular(16)
-              .copyWith(bottomLeft: const Radius.circular(4)),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4),
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
+            bottomRight: Radius.circular(16),
+          ),
           border: Border.all(color: TC.outline),
         ),
         child: Column(
@@ -287,6 +449,14 @@ class _AgentCard extends ConsumerWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (busy) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.6),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
@@ -296,24 +466,18 @@ class _AgentCard extends ConsumerWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 1),
-                      child: Builder(
-                        builder: (context) {
-                          final badge =
-                              _agentBadge[s.agent] ??
-                              (Icons.circle, TC.onBgDim);
-                          return Icon(badge.$1, size: 13, color: badge.$2);
-                        },
-                      ),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 1),
+                      child: Icon(Icons.circle,
+                          size: 8, color: TC.gain),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            s.tool,
+                            '${s.agent} · ${s.tool}',
                             style: const TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
@@ -322,7 +486,8 @@ class _AgentCard extends ConsumerWidget {
                           ),
                           Text(
                             s.detail,
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style:
+                                Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
@@ -334,7 +499,8 @@ class _AgentCard extends ConsumerWidget {
               const Divider(),
               const SizedBox(height: 6),
             ],
-            Text(result.reply, style: Theme.of(context).textTheme.bodyMedium),
+            Text(result.reply,
+                style: Theme.of(context).textTheme.bodyMedium),
             for (final p in result.proposals) ...[
               const SizedBox(height: 8),
               ProposalCard(
@@ -356,7 +522,25 @@ class _AgentCard extends ConsumerWidget {
                 ),
                 onApprove: p.allowed ? () => onApprove(p) : null,
                 onReject: () {},
-                liveMode: mode == AccountMode.live,
+                liveMode: liveMode,
+              ),
+            ],
+            if (result.suggestions.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 132,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: result.suggestions.length,
+                  itemBuilder: (context, i) {
+                    final s = result.suggestions[i];
+                    return _SuggestionCard(
+                      suggestion: s,
+                      onTrade:
+                          onTrade == null ? null : () => onTrade!(s),
+                    );
+                  },
+                ),
               ),
             ],
           ],
@@ -366,98 +550,81 @@ class _AgentCard extends ConsumerWidget {
   }
 }
 
-class _SuggestionBar extends StatelessWidget {
-  const _SuggestionBar({
-    required this.suggestions,
-    required this.enabled,
-    required this.onTap,
-  });
+class _SuggestionCard extends StatelessWidget {
+  const _SuggestionCard({required this.suggestion, required this.onTrade});
 
-  final List<String> suggestions;
-  final bool enabled;
-  final void Function(String) onTap;
+  final AgentSuggestion suggestion;
+  final VoidCallback? onTrade;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+    final s = suggestion;
+    return Container(
+      width: 168,
+      margin: const EdgeInsets.only(right: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: TC.surfaceHi,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: TC.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final s in suggestions)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ActionChip(
-                label: Text(s, style: const TextStyle(fontSize: 12)),
-                backgroundColor: TC.surfaceHi,
-                side: const BorderSide(color: TC.outline),
-                onPressed: enabled ? () => onTap(s) : null,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  s.symbol,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+              Icon(
+                s.trend == 'UP' ? Icons.trending_up : Icons.trending_flat,
+                size: 16,
+                color: s.trend == 'UP' ? TC.gain : TC.onBgDim,
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '₹${s.price.toStringAsFixed(2)}'
+            ' · ${s.changePct >= 0 ? '+' : ''}${s.changePct.toStringAsFixed(1)}%',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            'RSI ${s.rsi?.toStringAsFixed(0) ?? '-'} · '
+            'score ${s.score.toStringAsFixed(2)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            height: 30,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: TC.gain,
+                padding: EdgeInsets.zero,
+              ),
+              onPressed: onTrade,
+              child: const Text('TRADE',
+                  style:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
             ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _InputBar extends StatelessWidget {
-  const _InputBar({
-    required this.controller,
-    required this.enabled,
-    required this.sending,
-    required this.onSend,
-  });
-
-  final TextEditingController controller;
-  final bool enabled;
-  final bool sending;
-  final void Function(String) onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                enabled: enabled,
-                textInputAction: TextInputAction.send,
-                onSubmitted: onSend,
-                decoration: const InputDecoration(
-                  hintText: 'Give the crew a goal…',
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: FilledButton(
-                onPressed: enabled ? () => onSend(controller.text) : null,
-                style: FilledButton.styleFrom(padding: EdgeInsets.zero),
-                child: sending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.arrow_upward, size: 20),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Agent history: every persisted crew session (goal, trace, reply,
-/// proposals) — loaded from storage, newest first.
+/// Agent history: persisted conversations grouped by chat id, newest first.
+/// Tapping one opens that conversation in the chat view (display-only
+/// turns) and CONTINUES it — new messages append to the same chat id.
 void showAgentHistory(BuildContext context, WidgetRef ref) {
   showModalBottomSheet<void>(
     context: context,
@@ -484,7 +651,7 @@ class _AgentHistorySheet extends ConsumerWidget {
             Text('Agent history',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text('Persisted crew sessions, newest first.',
+            Text('Tap a conversation to open and continue it.',
                 style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 12),
             Flexible(
@@ -492,98 +659,83 @@ class _AgentHistorySheet extends ConsumerWidget {
                 loading: () =>
                     const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Text('$e'),
-                data: (list) => list.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Text('No sessions yet. Run the crew first.',
-                            textAlign: TextAlign.center),
-                      )
-                    : ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: list.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final s = list[list.length - 1 - i];
-                          final at = DateTime.tryParse(
-                                  s['at'] as String? ?? '') ??
-                              DateTime.now();
-                          final proposals =
-                              (s['proposals'] as List? ?? [])
-                                  .cast<Map>();
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: TC.surface,
-                              borderRadius:
-                                  BorderRadius.circular(14),
-                              border: Border.all(color: TC.outline),
-                            ),
-                            child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                Row(
+                data: (list) {
+                  final chats = <String, List<Map<String, dynamic>>>{};
+                  for (var i = 0; i < list.length; i++) {
+                    final s = list[i];
+                    final id = (s['chat_id'] as String?) ?? 'legacy-$i';
+                    chats.putIfAbsent(id, () => []).add(s);
+                  }
+                  final ids = chats.keys.toList().reversed.toList();
+                  if (ids.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No conversations yet.',
+                          textAlign: TextAlign.center),
+                    );
+                  }
+                  return ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: ids.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, i) {
+                      final id = ids[i];
+                      final turns = chats[id]!;
+                      final last = turns.last;
+                      final at = DateTime.tryParse(
+                              last['at'] as String? ?? '') ??
+                          DateTime.now();
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () {
+                          ref
+                              .read(agentChatProvider.notifier)
+                              .openChat(turns, id);
+                          Navigator.of(context).pop();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: TC.surface,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: TC.outline),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.chat_bubble_outline,
+                                  size: 16, color: TC.gain),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
-                                    const Icon(Icons.smart_toy,
-                                        size: 14, color: TC.gain),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        s['goal'] as String? ?? '',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleSmall,
-                                        overflow:
-                                            TextOverflow.ellipsis,
-                                      ),
+                                    Text(
+                                      turns.first['goal'] as String? ?? '',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     Text(
-                                      at.toLocal().toString().substring(
-                                          0, 16),
+                                      '${turns.length} turn(s) · '
+                                      '${at.toLocal().toString().substring(0, 16)}',
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall,
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'brain: ${s['brain']} · '
-                                  '${(s['steps'] as List? ?? []).length} steps · '
-                                  '${proposals.length} proposal(s)',
-                                  style:
-                                      Theme.of(context).textTheme.bodySmall,
-                                ),
-                                if ((s['reply'] as String? ?? '')
-                                    .isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text(s['reply'] as String,
-                                      maxLines: 4,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall),
-                                ],
-                                for (final p in proposals)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      '→ ${p['side']} ${p['quantity']} ${p['symbol']} @ ₹${p['price']} · ${p['allowed'] == true ? 'ALLOWED' : 'BLOCKED'}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: p['allowed'] == true
-                                            ? TC.gain
-                                            : TC.loss,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                              ),
+                              const Icon(Icons.chevron_right,
+                                  size: 18, color: TC.onBgDim),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ],

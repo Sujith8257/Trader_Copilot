@@ -402,6 +402,7 @@ class TradingService {
   Future<AgentRunResult> runCrew(
     String goal, {
     void Function(AgentStep)? onStep,
+    String? chatId,
   }) async {
     await ensureLoaded();
     final result = await agent.runGoal(
@@ -410,7 +411,8 @@ class TradingService {
       brain: brain,
       onStep: onStep,
     );
-    // Persist the session so the agent history survives restarts.
+    // Persist the session so the agent history survives restarts. The chat
+    // id groups the consecutive turns of one conversation together.
     try {
       await history.addSession(
         goal: goal,
@@ -429,9 +431,24 @@ class TradingService {
               'allowed': p.allowed,
             },
         ],
+        chatId: chatId,
       );
     } catch (_) {/* history must never break the crew */}
     return result;
+  }
+
+  /// Drafts a proposal for a symbol (BUY by default) using the same
+  /// deterministic sizing + Risk Engine used by the crew. Returns null if
+  /// live price/bars cannot be fetched. Used by the Agent screen's
+  /// suggestion cards: user taps Trade → amount dialog → executeWithAmount.
+  Future<AgentProposal?> draftProposal(String symbol, {Side side = Side.buy}) async {
+    await ensureLoaded();
+    return agent.draftProposalFor(
+      symbol,
+      side,
+      paper,
+      rationale: 'Picked from agent suggestions — sized from your amount.',
+    );
   }
 
   // -- amount-based execution ---------------------------------------------------
