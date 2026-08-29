@@ -8,6 +8,7 @@ import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'chart_screen.dart';
+import 'position_screen.dart';
 
 /// Portfolio screen: net worth, allocation and open positions from the
 /// paper broker. Everything here is deterministic backend state.
@@ -252,56 +253,64 @@ class _PositionTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  p.symbol.isNotEmpty ? p.symbol[0] : '?',
-                  style: TextStyle(
-                    color: accent,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+                builder: (_) => PositionScreen(symbol: p.symbol)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    p.symbol.isNotEmpty ? p.symbol[0] : '?',
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.symbol,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${p.quantity} @ ${formatINR(p.avgPrice, decimals: 2)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      p.symbol,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      formatINR(p.marketValue),
+                      style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${p.quantity} @ ${formatINR(p.avgPrice, decimals: 2)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    const SizedBox(height: 4),
+                    PnlChip(p.unrealizedPnl),
                   ],
                 ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    formatINR(p.marketValue),
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  PnlChip(p.unrealizedPnl),
-                ],
-              ),
-            ],
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right, size: 20, color: TC.outline),
+              ],
+            ),
           ),
         ),
       ),
