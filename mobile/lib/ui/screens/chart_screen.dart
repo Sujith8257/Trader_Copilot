@@ -35,8 +35,10 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
   void _load() {
     final svc = ref.read(tradingServiceProvider);
     _future = svc.ensureLoaded().then((_) async {
-      final bars = await svc.market
-          .bars(widget.symbol, granularity: _granularity);
+      final bars = await svc.market.bars(
+        widget.symbol,
+        granularity: _granularity,
+      );
       return CandleSeries(
         symbol: widget.symbol.toUpperCase(),
         market: Market.crypto,
@@ -78,7 +80,9 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
           }
           if (snap.hasError) {
             return _ErrorView(
-                error: '${snap.error}', onRetry: () => setState(_load));
+              error: '${snap.error}',
+              onRetry: () => setState(_load),
+            );
           }
           final series = snap.data!;
           if (series.bars.isEmpty) {
@@ -131,8 +135,9 @@ class _ChartBodyState extends ConsumerState<_ChartBody> {
     final first = bars.first;
     final changePct = (last.close / first.close - 1) * 100;
     final isLive = widget.series.source.contains('coinbase');
-    final shown =
-        _scrub == null || _scrub! >= bars.length ? last : bars[_scrub!];
+    final shown = _scrub == null || _scrub! >= bars.length
+        ? last
+        : bars[_scrub!];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -141,8 +146,10 @@ class _ChartBodyState extends ConsumerState<_ChartBody> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Row(
             children: [
-              Text(formatINR(shown.close),
-                  style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                formatINR(shown.close),
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               const SizedBox(width: 10),
               Text(
                 '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%',
@@ -158,8 +165,10 @@ class _ChartBodyState extends ConsumerState<_ChartBody> {
                   size: 14,
                   color: isLive ? TC.gain : TC.warn,
                 ),
-                label: Text(isLive ? 'LIVE Coinbase' : 'simulated',
-                    style: const TextStyle(fontSize: 11)),
+                label: Text(
+                  isLive ? 'LIVE Coinbase' : 'simulated',
+                  style: const TextStyle(fontSize: 11),
+                ),
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -167,44 +176,51 @@ class _ChartBodyState extends ConsumerState<_ChartBody> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-          child: Row(
-            children: [
-              for (final g in const [
-                ('1H', 'ONE_HOUR'),
-                ('6H', 'SIX_HOUR'),
-                ('1D', 'ONE_DAY'),
-              ]) ...[
-                ChoiceChip(
-                  label: Text(g.$1),
-                  selected: widget.granularity == g.$2,
-                  onSelected: (_) => widget.onGranularity(g.$2),
-                  visualDensity: VisualDensity.compact,
-                ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final g in const [
+                  ('1H', 'ONE_HOUR'),
+                  ('6H', 'SIX_HOUR'),
+                  ('1D', 'ONE_DAY'),
+                ]) ...[
+                  ChoiceChip(
+                    label: Text(g.$1),
+                    selected: widget.granularity == g.$2,
+                    onSelected: (_) => widget.onGranularity(g.$2),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 const SizedBox(width: 8),
+                for (final r in const [30, 60, 90]) ...[
+                  ChoiceChip(
+                    label: Text('$r'),
+                    selected: widget.range == r,
+                    onSelected: (_) => widget.onRange(r),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ],
-              const Spacer(),
-              for (final r in const [30, 60, 90]) ...[
-                ChoiceChip(
-                  label: Text('$r'),
-                  selected: widget.range == r,
-                  onSelected: (_) => widget.onRange(r),
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
+            ),
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            _scrub == null
-                ? 'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
-                    'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}'
-                : '${shown.time.toLocal().toString().substring(0, 10)}   '
-                    'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
-                    'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}',
-            style: Theme.of(context).textTheme.bodySmall,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _scrub == null
+                  ? 'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
+                        'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}'
+                  : '${shown.time.toLocal().toString().substring(0, 10)}   '
+                        'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
+                        'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ),
         Expanded(
@@ -217,8 +233,9 @@ class _ChartBodyState extends ConsumerState<_ChartBody> {
               onHorizontalDragEnd: (_) => setState(() => _scrub = null),
               child: CustomPaint(
                 painter: CandlePainter(
-                    bars: bars,
-                    highlight: _scrub == null ? -1 : _scrub!),
+                  bars: bars,
+                  highlight: _scrub == null ? -1 : _scrub!,
+                ),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -264,14 +281,18 @@ class _ErrorView extends StatelessWidget {
         children: [
           const Icon(Icons.wifi_off, size: 40, color: TC.onBgDim),
           const SizedBox(height: 12),
-          Text('Could not load candles',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Could not load candles',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text(error,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: TC.onBgDim, fontSize: 12)),
+            child: Text(
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: TC.onBgDim, fontSize: 12),
+            ),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
@@ -299,10 +320,18 @@ class CandlePainter extends CustomPainter {
     if (bars.isEmpty) return;
     final plot = Offset(48, 8) & Size(size.width - 58, size.height - 8);
     final priceBottom = plot.bottom - plot.height * _volumeFraction;
-    final priceRect =
-        Rect.fromLTRB(plot.left, plot.top, plot.right, priceBottom);
+    final priceRect = Rect.fromLTRB(
+      plot.left,
+      plot.top,
+      plot.right,
+      priceBottom,
+    );
     final volumeRect = Rect.fromLTRB(
-        plot.left, priceBottom + 6, plot.right, plot.bottom);
+      plot.left,
+      priceBottom + 6,
+      plot.right,
+      plot.bottom,
+    );
 
     final lows = bars.map((b) => b.low).reduce(_min);
     final highs = bars.map((b) => b.high).reduce(_max);
@@ -356,7 +385,10 @@ class CandlePainter extends CustomPainter {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromCenter(
-              center: Offset(x, top + h / 2), width: bodyW, height: h),
+            center: Offset(x, top + h / 2),
+            width: bodyW,
+            height: h,
+          ),
           const Radius.circular(1.5),
         ),
         paint,
@@ -377,11 +409,12 @@ class CandlePainter extends CustomPainter {
       final cross = Paint()
         ..color = TC.info.withValues(alpha: 0.7)
         ..strokeWidth = 1;
+      canvas.drawLine(Offset(x, plot.top), Offset(x, volumeRect.bottom), cross);
       canvas.drawLine(
-          Offset(x, plot.top), Offset(x, volumeRect.bottom), cross);
-      canvas.drawLine(
-          Offset(plot.left, yOf(b.close)), Offset(plot.right, yOf(b.close)),
-          cross);
+        Offset(plot.left, yOf(b.close)),
+        Offset(plot.right, yOf(b.close)),
+        cross,
+      );
     }
 
     // last-price marker (dashed)
@@ -393,15 +426,20 @@ class CandlePainter extends CustomPainter {
     for (var x = plot.left; x < plot.right - 2; x += 8) {
       canvas.drawLine(Offset(x, ly), Offset(x + 4, ly), dash);
     }
-    _label(canvas, formatINR(last.close), Offset(plot.right - 52, ly - 14),
-        color: TC.info);
+    _label(
+      canvas,
+      formatINR(last.close),
+      Offset(plot.right - 52, ly - 14),
+      color: TC.info,
+    );
   }
 
   void _label(Canvas canvas, String text, Offset at, {Color? color}) {
     final tp = TextPainter(
       text: TextSpan(
-          text: text,
-          style: TextStyle(color: color ?? TC.onBgDim, fontSize: 9.5)),
+        text: text,
+        style: TextStyle(color: color ?? TC.onBgDim, fontSize: 9.5),
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, at);
