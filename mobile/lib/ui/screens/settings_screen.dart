@@ -105,6 +105,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// Switch provider and prefill the fields with that provider's defaults
+  /// (keeping anything already typed that still applies).
+  void _pickBrain(BrainKind k) {
+    final preset = BrainConfig.defaults(k);
+    setState(() {
+      _kind = k;
+      _url.text = preset.baseUrl;
+      _model.text = preset.model;
+    });
+  }
+
   Future<void> _probeBrain() async {
     setState(() {
       _probing = true;
@@ -151,30 +162,53 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           const _SectionTitle('Agent brain'),
           Text(
-            'The crew thinks with this LLM. Rule brain = fully offline, no '
-            'key. Local = your Termux llama-server / Ollama on this phone.',
+            'The crew thinks with this LLM. Pick any provider — every one '
+            'speaks the same OpenAI-compatible protocol, so the whole agentic '
+            'flow stays identical.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 10),
-          SegmentedButton<BrainKind>(
-            segments: const [
-              ButtonSegment(value: BrainKind.rule, label: Text('Rule')),
-              ButtonSegment(
-                  value: BrainKind.localServer, label: Text('Local')),
-              ButtonSegment(value: BrainKind.gemini, label: Text('Gemini')),
-              ButtonSegment(value: BrainKind.groq, label: Text('Groq')),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 3.4,
+            children: [
+              for (final k in BrainKind.values)
+                _ProviderCard(
+                  kind: k,
+                  selected: _kind == k,
+                  onTap: () => _pickBrain(k),
+                ),
             ],
-            selected: {_kind},
-            onSelectionChanged: (s) => setState(() => _kind = s.first),
           ),
-          if (_kind == BrainKind.localServer) ...[
-            _Field(_url, 'Base URL', hint: 'http://127.0.0.1:8080/v1'),
-            _Field(_model, 'Model name', hint: 'qwen3.5-9b'),
-          ],
-          if (_kind == BrainKind.gemini || _kind == BrainKind.groq) ...[
-            _Field(_url, 'Base URL (optional override)'),
-            _Field(_brainKey, 'API key', obscure: true),
-            _Field(_model, 'Model name (optional)'),
+          if (_kind == BrainKind.rule)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Rule brain runs fully offline — no URL, no key. The crew uses '
+                'deterministic momentum/RSI logic instead of an LLM.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            )
+          else ...[
+            if (_kind == BrainKind.localServer)
+              Text(
+                'Point this at any llama-server / LM Studio / Ollama on the '
+                'phone (Termux: http://127.0.0.1:8080/v1) or your PC on the '
+                'same Wi-Fi (e.g. http://10.156.105.149:8080/v1 — take your '
+                'web chat URL, drop the #/chat part, add /v1).',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            _Field(_url,
+                _kind == BrainKind.localServer ? 'Base URL' : 'Base URL (optional override)'),
+            if (_kind.needsKey)
+              _Field(_brainKey, 'API key',
+                  obscure: true, hint: _kind.keyHint),
+            _Field(_model, 'Model name', hint: 'e.g. qwen3.5-9b'),
           ],
           const SizedBox(height: 10),
           Row(children: [
@@ -334,6 +368,67 @@ class _Field extends StatelessWidget {
         controller: controller,
         obscureText: obscure,
         decoration: InputDecoration(labelText: label, hintText: hint),
+      ),
+    );
+  }
+}
+
+/// One selectable LLM provider card in the brain picker.
+class _ProviderCard extends StatelessWidget {
+  const _ProviderCard(
+      {required this.kind, required this.selected, required this.onTap});
+
+  final BrainKind kind;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? TC.gain.withValues(alpha: 0.10) : TC.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color: selected ? TC.gain : TC.outline,
+              width: selected ? 1.4 : 1),
+        ),
+        child: Row(
+          children: [
+            Icon(kind.icon,
+                size: 20, color: selected ? TC.gain : TC.onBgDim),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    kind.label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? TC.gain : TC.onBg,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    kind.subtitle,
+                    style: const TextStyle(
+                        fontSize: 10, color: TC.onBgDim),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle, size: 16, color: TC.gain),
+          ],
+        ),
       ),
     );
   }

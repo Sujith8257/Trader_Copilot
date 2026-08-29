@@ -6,9 +6,54 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:http/http.dart' as http;
 
-enum BrainKind { localServer, gemini, groq, rule }
+enum BrainKind { localServer, openrouter, gemini, claude, groq, rule }
+
+/// Display metadata for the Settings picker.
+extension BrainKindX on BrainKind {
+  String get label => switch (this) {
+        BrainKind.rule => 'Rule brain',
+        BrainKind.localServer => 'Local / Wi-Fi',
+        BrainKind.openrouter => 'OpenRouter',
+        BrainKind.gemini => 'Gemini',
+        BrainKind.claude => 'Claude',
+        BrainKind.groq => 'Groq',
+      };
+
+  String get subtitle => switch (this) {
+        BrainKind.rule => 'Offline, no key needed',
+        BrainKind.localServer => 'llama-server / Ollama / LM Studio — Termux or the same Wi-Fi',
+        BrainKind.openrouter => 'One key, 300+ models (incl. free tiers)',
+        BrainKind.gemini => 'Google AI Studio free tier',
+        BrainKind.claude => 'Anthropic console key',
+        BrainKind.groq => 'Fastest free tier',
+      };
+
+  IconData get icon => switch (this) {
+        BrainKind.rule => Icons.psychology_alt_outlined,
+        BrainKind.localServer => Icons.lan_outlined,
+        BrainKind.openrouter => Icons.hub_outlined,
+        BrainKind.gemini => Icons.auto_awesome,
+        BrainKind.claude => Icons.terminal,
+        BrainKind.groq => Icons.bolt,
+      };
+
+  String get keyHint => switch (this) {
+        BrainKind.openrouter => 'sk-or-v1-…',
+        BrainKind.gemini => 'AIza…',
+        BrainKind.claude => 'sk-ant-…',
+        BrainKind.groq => 'gsk_…',
+        _ => 'Optional',
+      };
+
+  bool get needsKey =>
+      this == BrainKind.openrouter ||
+      this == BrainKind.gemini ||
+      this == BrainKind.claude ||
+      this == BrainKind.groq;
+}
 
 class BrainConfig {
   const BrainConfig({
@@ -34,6 +79,15 @@ class BrainConfig {
             kind: kind,
             baseUrl: baseUrl.isEmpty ? 'http://127.0.0.1:8080/v1' : baseUrl,
             model: model.isEmpty ? 'qwen' : model);
+      case BrainKind.openrouter:
+        return BrainConfig(
+            kind: kind,
+            baseUrl:
+                baseUrl.isEmpty ? 'https://openrouter.ai/api/v1' : baseUrl,
+            apiKey: apiKey,
+            model: model.isEmpty
+                ? 'anthropic/claude-3.5-haiku'
+                : model);
       case BrainKind.gemini:
         return BrainConfig(
             kind: kind,
@@ -42,6 +96,13 @@ class BrainConfig {
                 : baseUrl,
             apiKey: apiKey,
             model: model.isEmpty ? 'gemini-2.0-flash' : model);
+      case BrainKind.claude:
+        return BrainConfig(
+            kind: kind,
+            baseUrl:
+                baseUrl.isEmpty ? 'https://api.anthropic.com/v1' : baseUrl,
+            apiKey: apiKey,
+            model: model.isEmpty ? 'claude-3-5-haiku-latest' : model);
       case BrainKind.groq:
         return BrainConfig(
             kind: kind,
@@ -108,6 +169,8 @@ class LlmClient {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       if (brain.apiKey.isNotEmpty) 'Authorization': 'Bearer ${brain.apiKey}',
+      // Anthropic's OpenAI-compatible endpoint wants a version pin.
+      if (brain.kind == BrainKind.claude) 'anthropic-version': '2023-06-01',
     };
     final body = jsonEncode({
       'model': brain.model,
