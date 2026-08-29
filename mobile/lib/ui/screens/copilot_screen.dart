@@ -280,8 +280,8 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
                   decoration: const InputDecoration(labelText: 'Quantity'),
                   keyboardType: TextInputType.number,
                   validator: (v) => (double.tryParse(v ?? '') ?? 0) > 0
-                      ? 'Must be > 0'
-                      : null,
+                      ? null
+                      : 'Must be > 0',
                 ),
               ),
             ],
