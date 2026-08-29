@@ -148,6 +148,15 @@ class ApiClient {
         .toList();
   }
 
+  /// OHLCV bars for candlestick charts. Crypto bars are LIVE Coinbase data.
+  Future<CandleSeries> fetchCandles(String symbol,
+      {Market market = Market.stocks, int limit = 90}) async {
+    final r = await _client.get(_uri('/market/candles/${Uri.encodeComponent(symbol)}')
+        .replace(queryParameters: {'market': market.wire, 'limit': '$limit'}));
+    _ensureOk(r);
+    return CandleSeries.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+  }
+
   void _ensureOk(http.Response r) {
     if (r.statusCode < 200 || r.statusCode >= 300) {
       throw ApiError('Backend returned ${r.statusCode}: ${r.body}');

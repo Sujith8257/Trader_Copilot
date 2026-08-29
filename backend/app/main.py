@@ -17,7 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .core.agent import AgentEngine, AgentResult, TradingProfile
+from .core.brokers.coinbase import CoinbaseBroker
 from .core.brokers.paper import PaperBroker
+from .core.coinbase import CoinbaseError, LiveCoinbaseMarket
 from .core.indicators import snapshot
 from .core.market import CRYPTO_UNIVERSE, MarketSim, SlicedMarket
 from .core.models import (
@@ -53,10 +55,21 @@ market = MarketSim()
 profile = TradingProfile()
 agent = AgentEngine(market, engine, paper, profile)
 
-# Crypto paper account: a 24/7 market riding the SAME BrokerClient interface.
-crypto_market = MarketSim(universe=CRYPTO_UNIVERSE, seed=11)
+# Crypto paper account: 24/7 market riding the SAME BrokerClient interface.
+# Market data is LIVE from Coinbase (no simulated data); set
+# TRADER_CRYPTO_SOURCE=sim to fall back to the seeded simulator (used by the
+# offline test suite).
+if os.getenv("TRADER_CRYPTO_SOURCE", "live") == "sim":
+    crypto_market = MarketSim(universe=CRYPTO_UNIVERSE, seed=11)
+    crypto_source = "simulated"
+else:
+    crypto_market = LiveCoinbaseMarket()
+    crypto_source = "coinbase-live"
 crypto_paper = PaperBroker(account_id="crypto-paper", initial_cash=1_000_000.0)
 crypto_agent = AgentEngine(crypto_market, engine, crypto_paper, profile)
+
+# LIVE trading (real money): Coinbase Advanced Trade broker pack.
+coinbase_live = CoinbaseBroker(market=crypto_market)
 
 
 def _resolve(market_name: str) -> tuple:
@@ -88,11 +101,39 @@ def health() -> dict:
         "status": "ok",
         "risk_engine_enabled": engine.config.enabled,
         "paper_broker": broker.value,
+        "crypto_data_source": crypto_source,
+        "crypto_market_status": (
+            crypto_market.status()
+            if hasattr(crypto_market, "status") else None
+        ),
+        "coinbase_live": {
+            "configured": coinbase_live.client.configured,
+            "health": coinbase_live.health().value,
+            "quote": coinbase_live.quote,
+            "last_error": coinbase_live.last_error,
+        },
     }
 
 
 @app.get("/account")
-def account(market: str = Query("stocks")) -> dict:
+def account(market: str = Query("stocks"), mode: str = Query("paper")) -> dict:
+    if market == "crypto" and mode == "live":
+        acct = coinbase_live.get_account()
+        return {
+            "account_id": acct.account_id,
+            "market": market,
+            "mode": "LIVE",
+            "cash": acct.cash,
+            "equity": acct.equity,
+            "day_start_equity": acct.day_start_equity,
+            "broker_health": coinbase_live.health().value,
+            "broker_error": coinbase_live.last_error,
+            "quote": coinbase_live.quote,
+            "positions": {
+                s: {"qty": p.quantity, "avg": p.avg_price, "last": p.current_price}
+                for s, p in acct.positions.items()
+            },
+        }
     acct = _resolve(market)[0].get_account()
     return {
         "account_id": acct.account_id,
@@ -166,6 +207,56 @@ def place_paper_order(symbol: str, side: Side, quantity: float, market_price: fl
     }
 
 
+class LiveOrderIn(BaseModel):
+    symbol: str
+    side: Side
+    quantity: float = Field(gt=0)
+    market_price: float = Field(gt=0)
+    market: str = "crypto"
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    rationale: str = "user-approved live order"
+
+
+@app.post("/orders/live")
+def place_live_order(body: LiveOrderIn) -> dict:
+    """REAL MONEY: place a market order on Coinbase after Risk Engine checks.
+
+    The Risk Engine gates this exactly like a paper order — same limits, same
+    kill switch. Crypto trades 24/7 so the market-hours rule never blocks it.
+    Requires Coinbase credentials; the broker rejects if unfunded/offline."""
+    if body.market != "crypto":
+        return {"error": "Live orders are crypto-only right now: Coinbase does "
+                         "not offer NSE stocks. Use /orders/paper for stocks."}
+    market_open = True  # crypto is always open
+    tp = TradeProposal(
+        symbol=body.symbol.upper(), side=body.side, quantity=body.quantity,
+        entry_price=body.market_price, stop_loss=body.stop_loss,
+        take_profit=body.take_profit, rationale=body.rationale, source="manual",
+    )
+    verdict = engine.evaluate(
+        tp, coinbase_live.get_account(), body.market_price, market_open
+    )
+    if not verdict.allowed:
+        return {"executed": False, "risk": {
+            "allowed": False, "violations": verdict.violations,
+            "warnings": verdict.warnings}}
+    order = Order(
+        symbol=body.symbol.upper(), side=body.side, quantity=body.quantity,
+        order_type=OrderType.MARKET, stop_loss=body.stop_loss,
+        take_profit=body.take_profit,
+    )
+    result = coinbase_live.place_order(order, body.market_price)
+    return {
+        "executed": result.status == OrderStatus.FILLED,
+        "order_id": result.order_id,
+        "status": result.status.value,
+        "filled_price": result.filled_price,
+        "broker_error": coinbase_live.last_error,
+        "risk": {"allowed": True, "violations": [], "warnings": verdict.warnings},
+    }
+
+
 # -- Agentic Copilot + Market Intelligence ----------------------------------- #
 
 class ChatIn(BaseModel):
@@ -207,6 +298,20 @@ def market_indicators(symbol: str, market: str = Query("stocks")) -> dict:
         "symbol": symbol.upper(),
         **snapshot(sim.bars(symbol)),
         "closes": sim.prices(symbol),  # full series for client charts
+    }
+
+
+@app.get("/market/candles/{symbol}")
+def market_candles(symbol: str, market: str = Query("stocks"),
+                   limit: int = Query(90, ge=10, le=350)) -> dict:
+    """OHLCV bars for candlestick charts. LIVE Coinbase candles for crypto."""
+    sim = _resolve(market)[2]
+    bars = list(sim.bars(symbol))[-limit:]
+    return {
+        "symbol": symbol.upper(),
+        "market": market,
+        "source": getattr(sim, "status", lambda: {"source": "simulated"})()["source"],
+        "bars": bars,
     }
 
 

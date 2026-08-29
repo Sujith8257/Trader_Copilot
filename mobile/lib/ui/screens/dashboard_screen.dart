@@ -6,6 +6,7 @@ import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'chart_screen.dart';
 
 /// Portfolio screen: net worth, allocation and open positions from the
 /// paper broker. Everything here is deterministic backend state.
@@ -372,7 +373,7 @@ class _RadarCard extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        SectionHeader('AI Radar', trailing: 'tap a symbol to ask the agent'),
+        SectionHeader('AI Radar', trailing: 'tap a symbol for live charts'),
         SizedBox(
           height: 112,
           child: ListView.separated(
@@ -386,7 +387,11 @@ class _RadarCard extends ConsumerWidget {
               final c = up ? TC.gain : TC.loss;
               return InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: () => ref.read(tabIndexProvider.notifier).set(1),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ChartScreen(symbol: r.symbol),
+                  ),
+                ),
                 child: Container(
                   width: 134,
                   padding: const EdgeInsets.all(12),

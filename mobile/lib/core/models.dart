@@ -316,3 +316,71 @@ class EquityPoint {
         equity: (j['equity'] as num).toDouble(),
       );
 }
+
+/// One OHLCV bar (candlestick). For the crypto market these are LIVE
+/// Coinbase daily candles converted to INR.
+class Candle {
+  Candle({
+    required this.time,
+    required this.open,
+    required this.high,
+    required this.low,
+    required this.close,
+    this.volume,
+  });
+
+  final DateTime time;
+  final double open;
+  final double high;
+  final double low;
+  final double close;
+  final double? volume;
+
+  bool get bullish => close >= open;
+
+  factory Candle.fromJson(Map<String, dynamic> j) {
+    final start = j['start'];
+    final t = start is String
+        ? DateTime.fromMillisecondsSinceEpoch(int.parse(start) * 1000)
+        : DateTime.now();
+    return Candle(
+      time: t,
+      open: (j['o'] as num).toDouble(),
+      high: (j['h'] as num).toDouble(),
+      low: (j['l'] as num).toDouble(),
+      close: (j['c'] as num).toDouble(),
+      volume: (j['v'] as num?)?.toDouble(),
+    );
+  }
+}
+
+/// Response of GET /market/candles/{symbol} — bars + data provenance.
+class CandleSeries {
+  CandleSeries({
+    required this.symbol,
+    required this.market,
+    required this.source,
+    required this.bars,
+  });
+
+  final String symbol;
+  final Market market;
+  final String source;
+  final List<Candle> bars;
+
+  double get minLow =>
+      bars.map((b) => b.low).reduce((a, b) => a < b ? a : b);
+  double get maxHigh =>
+      bars.map((b) => b.high).reduce((a, b) => a > b ? a : b);
+
+  factory CandleSeries.fromJson(Map<String, dynamic> j) => CandleSeries(
+        symbol: j['symbol'] as String,
+        market: (j['market'] as String? ?? 'stocks') == 'crypto'
+            ? Market.crypto
+            : Market.stocks,
+        source: j['source'] as String? ?? 'unknown',
+        bars: (j['bars'] as List? ?? [])
+            .map((b) => Candle.fromJson(b as Map<String, dynamic>))
+            .toList(),
+      );
+}
