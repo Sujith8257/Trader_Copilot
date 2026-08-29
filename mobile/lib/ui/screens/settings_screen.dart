@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/agent/llm_client.dart';
 import '../../state/providers.dart';
@@ -25,6 +27,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _probeResult;
   bool _probing = false;
   bool _savingCb = false;
+  bool _bioLock = false;
+
+  Future<void> _toggleBioLock(bool v) async {
+    if (v) {
+      // Verify once before enabling, so we know the device supports it.
+      try {
+        final ok = await LocalAuthentication().authenticate(
+          localizedReason: 'Confirm to enable the app lock',
+          options:
+              const AuthenticationOptions(stickyAuth: true, biometricOnly: true),
+        );
+        if (!ok) return;
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'No biometrics available on this device — lock not enabled.')));
+        }
+        return;
+      }
+    }
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool('biometric_lock', v);
+    if (mounted) setState(() => _bioLock = v);
+  }
 
   @override
   void initState() {
@@ -51,6 +78,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _cbKey.text = s.coinbaseKey;
       _cbSecret.text = s.coinbaseSecret;
     });
+    final bio = await SharedPreferences.getInstance()
+        .then((sp) => sp.getBool('biometric_lock') ?? false);
+    if (mounted) setState(() => _bioLock = bio);
   }
 
   @override
@@ -194,6 +224,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   TextStyle(fontSize: 12.5, color: ok ? TC.gain : TC.onBgDim),
             );
           }),
+          const SizedBox(height: 24),
+          const _SectionTitle('Security'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Biometric app lock'),
+            subtitle: const Text(
+                'Fingerprint / face required to open the app. Keys stay in '
+                'the Android Keystore either way.'),
+            value: _bioLock,
+            activeThumbColor: TC.gain,
+            onChanged: _toggleBioLock,
+          ),
           const SizedBox(height: 24),
           const _SectionTitle('Risk limits'),
           SwitchListTile(

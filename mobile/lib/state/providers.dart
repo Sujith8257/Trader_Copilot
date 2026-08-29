@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/engine/alerts.dart';
 import '../core/engine/trading_service.dart';
 import '../core/models.dart';
 
@@ -102,4 +105,259 @@ final killSwitchProvider = Provider<bool>((ref) {
   ref.watch(engineReadyProvider).whenData((_) => null);
   return ref.watch(tradingServiceProvider).risk.config.enabled;
 });
+
+// ---------------------------------------------------------------------------
+// LIVE heartbeat: auto-refresh + limit fills + alerts
+// ---------------------------------------------------------------------------
+
+/// Fires every 30s while the shell is mounted. Each tick marks the paper
+/// account to LIVE prices, fills any resting limit orders that crossed, and
+/// evaluates alerts against real fetched data.
+class AutoRefreshNotifier extends Notifier<DateTime?> {
+  Timer? _timer;
+  bool _ticking = false;
+
+  @override
+  DateTime? build() {
+    ref.onDispose(() => _timer?.cancel());
+    return null;
+  }
+
+  void start() {
+    _timer ??= Timer.periodic(const Duration(seconds: 30), (_) => _tick());
+    _tick(); // immediate first tick
+  }
+
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  Future<void> _tick() async {
+    if (_ticking) return; // never overlap: live fetches can be slow
+    _ticking = true;
+    final svc = ref.read(tradingServiceProvider);
+    try {
+      final tick = await svc.refreshTick();
+      ref.invalidate(accountProvider);
+      ref.invalidate(marketOverviewProvider);
+      ref.invalidate(historyProvider);
+      final journal = ref.read(journalProvider.notifier);
+      for (final (order, price) in tick.limitFills) {
+        journal.add(ExecutedTrade(
+          symbol: order.symbol,
+          side: order.side,
+          quantity: order.quantity,
+          filledPrice: price,
+          at: DateTime.now(),
+        ));
+      }
+      if (tick.alertsFired.isNotEmpty) {
+        ref.read(unreadAlertsProvider.notifier).bump(tick.alertsFired.length);
+        ref.read(lastFiredAlertsProvider.notifier).set(tick.alertsFired);
+      }
+      state = DateTime.now();
+    } catch (_) {
+      // network hiccup — next tick retries; never crash the heartbeat
+    } finally {
+      _ticking = false;
+    }
+  }
+}
+
+final autoRefreshProvider =
+    NotifierProvider<AutoRefreshNotifier, DateTime?>(AutoRefreshNotifier.new);
+
+/// Count of alert fires the user has not seen (bell badge).
+class UnreadAlertsNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump(int n) => state += n;
+  void clear() => state = 0;
+}
+
+final unreadAlertsProvider =
+    NotifierProvider<UnreadAlertsNotifier, int>(UnreadAlertsNotifier.new);
+
+/// Alerts that fired in the most recent tick (drives the snackbar).
+class LastFiredAlertsNotifier extends Notifier<List<AlertRule>> {
+  @override
+  List<AlertRule> build() => const [];
+  void set(List<AlertRule> v) => state = v;
+}
+
+final lastFiredAlertsProvider =
+    NotifierProvider<LastFiredAlertsNotifier, List<AlertRule>>(
+        LastFiredAlertsNotifier.new);
+
+/// The alert rule list (persisted via AlertEngine).
+class AlertsNotifier extends Notifier<List<AlertRule>> {
+  @override
+  List<AlertRule> build() {
+    _hydrate();
+    return const [];
+  }
+
+  Future<void> _hydrate() async {
+    final svc = ref.read(tradingServiceProvider);
+    await svc.ensureLoaded();
+    await svc.alerts.load();
+    state = List.of(svc.alerts.rules);
+  }
+
+  Future<void> add({
+    required String symbol,
+    required AlertMetric metric,
+    required AlertOp op,
+    required double value,
+  }) async {
+    final svc = ref.read(tradingServiceProvider);
+    await svc.alerts.add(symbol: symbol, metric: metric, op: op, value: value);
+    state = List.of(svc.alerts.rules);
+  }
+
+  Future<void> remove(String id) async {
+    final svc = ref.read(tradingServiceProvider);
+    await svc.alerts.remove(id);
+    state = List.of(svc.alerts.rules);
+  }
+}
+
+final alertsProvider =
+    NotifierProvider<AlertsNotifier, List<AlertRule>>(AlertsNotifier.new);
+
+// ---------------------------------------------------------------------------
+// Watchlist — pinned symbols on the dashboard (persisted).
+// ---------------------------------------------------------------------------
+
+class WatchlistNotifier extends Notifier<Set<String>> {
+  static const _pref = 'watchlist';
+
+  @override
+  Set<String> build() {
+    _hydrate();
+    return const {};
+  }
+
+  Future<void> _hydrate() async {
+    final sp = await SharedPreferences.getInstance();
+    state = (sp.getStringList(_pref) ?? const []).toSet();
+  }
+
+  Future<void> toggle(String symbol) async {
+    final next = Set<String>.from(state);
+    if (!next.add(symbol)) next.remove(symbol);
+    state = next;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setStringList(_pref, next.toList());
+  }
+}
+
+final watchlistProvider =
+    NotifierProvider<WatchlistNotifier, Set<String>>(WatchlistNotifier.new);
+
+// ---------------------------------------------------------------------------
+// News — real headlines via DuckDuckGo (the agent's own web_search tool).
+// ---------------------------------------------------------------------------
+
+final newsProvider = FutureProvider.autoDispose<List<Map<String, String>>>(
+    (ref) async {
+  await ref.watch(engineReadyProvider.future);
+  return ref.watch(tradingServiceProvider).news();
+});
+
+// ---------------------------------------------------------------------------
+// Autopilot — the crew re-runs on a timer while the app is open. Proposals
+// still queue for YOUR approval; the Risk Engine still gates execution.
+// ---------------------------------------------------------------------------
+
+class AutopilotState {
+  const AutopilotState(
+      {this.enabled = false,
+      this.intervalMinutes = 15,
+      this.goal =
+          'Grow the paper portfolio with disciplined, moderate-risk entries.',
+      this.running = false,
+      this.lastRun});
+  final bool enabled;
+  final int intervalMinutes;
+  final String goal;
+  final bool running;
+  final DateTime? lastRun;
+
+  AutopilotState copyWith({
+    bool? enabled,
+    int? intervalMinutes,
+    String? goal,
+    bool? running,
+    DateTime? lastRun,
+  }) =>
+      AutopilotState(
+        enabled: enabled ?? this.enabled,
+        intervalMinutes: intervalMinutes ?? this.intervalMinutes,
+        goal: goal ?? this.goal,
+        running: running ?? this.running,
+        lastRun: lastRun ?? this.lastRun,
+      );
+}
+
+class AutopilotNotifier extends Notifier<AutopilotState> {
+  Timer? _timer;
+
+  @override
+  AutopilotState build() {
+    ref.onDispose(() => _timer?.cancel());
+    return const AutopilotState();
+  }
+
+  void setEnabled(bool on) {
+    _timer?.cancel();
+    _timer = null;
+    state = state.copyWith(enabled: on, running: false);
+    if (on) {
+      _timer = Timer.periodic(
+          Duration(minutes: state.intervalMinutes), (_) => runOnce());
+      Future.delayed(const Duration(seconds: 2), runOnce);
+    }
+  }
+
+  void setInterval(int minutes) {
+    state = state.copyWith(intervalMinutes: minutes);
+    if (state.enabled) setEnabled(true); // restart with the new interval
+  }
+
+  void setGoal(String goal) => state = state.copyWith(goal: goal);
+
+  Future<void> runOnce() async {
+    if (state.running || !state.enabled) return;
+    state = state.copyWith(running: true);
+    final svc = ref.read(tradingServiceProvider);
+    try {
+      final result = await svc.runCrew(state.goal);
+      ref.read(pendingProposalsProvider.notifier).addAll(result.proposals);
+      ref.invalidate(accountProvider);
+    } catch (_) {/* keep autopilot alive on network errors */
+    } finally {
+      state = state.copyWith(running: false, lastRun: DateTime.now());
+    }
+  }
+}
+
+final autopilotProvider =
+    NotifierProvider<AutopilotNotifier, AutopilotState>(AutopilotNotifier.new);
+
+/// Proposals waiting for the user's decision (autopilot queue).
+class PendingProposalsNotifier extends Notifier<List<Object>> {
+  @override
+  List<Object> build() => const [];
+
+  void addAll(List<Object> proposals) => state = [...state, ...proposals];
+
+  void remove(Object p) =>
+      state = state.where((e) => !identical(e, p)).toList();
+}
+
+final pendingProposalsProvider =
+    NotifierProvider<PendingProposalsNotifier, List<Object>>(
+        PendingProposalsNotifier.new);
 

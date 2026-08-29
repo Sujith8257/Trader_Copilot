@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/engine/analytics.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
@@ -77,6 +79,24 @@ class JournalScreen extends ConsumerWidget {
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 16),
+        const _AnalyticsCard(),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.table_view, size: 18),
+                label: const Text('Export CSV'),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: tradesCsv(trades)));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Journal CSV copied to clipboard.')));
+                },
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         SectionHeader('History'),
@@ -179,6 +199,107 @@ class _TradeTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Performance analytics computed from the REAL equity curve and journal.
+class _AnalyticsCard extends ConsumerWidget {
+  const _AnalyticsCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final trades = ref.watch(journalProvider);
+    final equity = ref.watch(historyProvider).value ?? const <EquityPoint>[];
+    final s = computeStats(trades: trades, equity: equity);
+
+    String pf(double v) =>
+        v >= 99 ? '∞' : v.toStringAsFixed(v >= 10 ? 1 : 2);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionHeader('Performance', trailing: 'live-marked equity'),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: StatTile(
+                    label: 'Win rate',
+                    value: s.hasTrades ? '${s.winRatePct.toStringAsFixed(0)}%' : '–',
+                    icon: Icons.emoji_events_outlined,
+                    valueColor: s.winRatePct >= 50 ? TC.gain : TC.warn,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: StatTile(
+                    label: 'Profit factor',
+                    value: s.hasTrades ? pf(s.profitFactor) : '–',
+                    icon: Icons.balance,
+                    valueColor: s.profitFactor >= 1 ? TC.gain : TC.loss,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: StatTile(
+                    label: 'Max drawdown',
+                    value: s.maxDrawdownPct > 0
+                        ? '-${s.maxDrawdownPct.toStringAsFixed(1)}%'
+                        : '–',
+                    icon: Icons.trending_down,
+                    valueColor: TC.loss,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: StatTile(
+                    label: 'Net realized PnL',
+                    value: formatSignedINR(s.netRealizedPnl),
+                    icon: Icons.savings_outlined,
+                    valueColor: s.netRealizedPnl >= 0 ? TC.gain : TC.loss,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: StatTile(
+                    label: 'Best trade',
+                    value: s.hasTrades ? formatSignedINR(s.bestTrade) : '–',
+                    icon: Icons.north_east,
+                    valueColor: TC.gain,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: StatTile(
+                    label: 'Worst trade',
+                    value: s.hasTrades ? formatSignedINR(s.worstTrade) : '–',
+                    icon: Icons.south_east,
+                    valueColor: TC.loss,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Win rate & PnL come from your closed lots (avg entry vs sell '
+              'fill); drawdown from the equity curve marked to live prices.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
       ),
     );

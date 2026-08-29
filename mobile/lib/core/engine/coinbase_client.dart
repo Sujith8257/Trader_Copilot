@@ -232,17 +232,23 @@ class LiveCoinbaseMarket {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<List<Candle>> bars(String symbol) async {
+  /// LIVE OHLCV bars for [symbol], INR-converted. [granularity] supports
+  /// ONE_HOUR / SIX_HOUR / ONE_DAY (Coinbase brokerages API). Cached per
+  /// (symbol, granularity): intraday 2 min, daily 5 min.
+  Future<List<Candle>> bars(String symbol, {String granularity = 'ONE_DAY'}) async {
     final sym = symbol.trim().toUpperCase();
-    final cached = _bars[sym];
-    final ts = _barsTs[sym];
+    final key = '$sym:$granularity';
+    final cached = _bars[key];
+    final ts = _barsTs[key];
+    final ttl = granularity == 'ONE_DAY' ? 5 : 2;
     if (cached != null &&
         ts != null &&
-        DateTime.now().difference(ts).inMinutes < 5) {
+        DateTime.now().difference(ts).inMinutes < ttl) {
       return cached;
     }
     try {
-      final candles = await client.getCandles(product(sym), limit: 120);
+      final candles = await client.getCandles(product(sym),
+          granularity: granularity, limit: 120);
       final fx = await usdInr();
       final list = [
         for (final c in candles)
@@ -259,8 +265,8 @@ class LiveCoinbaseMarket {
       if (list.isEmpty) {
         throw CoinbaseException('No candles for $sym');
       }
-      _bars[sym] = list;
-      _barsTs[sym] = DateTime.now();
+      _bars[key] = list;
+      _barsTs[key] = DateTime.now();
       lastError = null;
       return list;
     } catch (e) {

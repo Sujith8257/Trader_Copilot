@@ -1,9 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Required to call the Trader Copilot backend (paper trading API). -->
+    <!-- Market data + trading calls go straight to Coinbase from the phone. -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Dev builds talk to a plain-HTTP backend on the LAN (uvicorn on port
-         8000). usesCleartextTraffic is fine for paper trading; restrict before
-         any public deployment. -->
+    <!-- Biometric app lock (local_auth): fingerprint / face unlock before the
+         trading app (and its stored keys) can be used. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <application
         android:label="Trader Copilot"
         android:name="${applicationName}"

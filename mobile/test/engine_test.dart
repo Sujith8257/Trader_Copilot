@@ -1,47 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:trader_copilot/core/engine/alerts.dart';
+import 'package:trader_copilot/core/engine/analytics.dart';
 import 'package:trader_copilot/core/engine/coinbase_client.dart';
 import 'package:trader_copilot/core/engine/indicators.dart';
 import 'package:trader_copilot/core/engine/paper_broker.dart';
 import 'package:trader_copilot/core/engine/risk_engine.dart';
 import 'package:trader_copilot/core/format.dart';
 import 'package:trader_copilot/core/models.dart';
-
-// ---------------------------------------------------------------------
-// Deterministic fake market — canned candles, no network (tests only).
-// ---------------------------------------------------------------------
-class FakeMarket extends LiveCoinbaseMarket {
-  FakeMarket() : super(products: const ['BTC', 'ETH']);
-
-  @override
-  Future<double> usdInr() async => 90.0;
-
-  @override
-  Future<List<Candle>> bars(String symbol) async {
-    // 120 gently rising daily bars, base 60000 USD -> INR-converted
-    final bars = <Candle>[];
-    for (var i = 0; i < 120; i++) {
-      final o = 60000.0 + i * 20;
-      final c = o * 1.005;
-      bars.add(Candle(
-        time: DateTime.fromMillisecondsSinceEpoch(
-            1700000000000 + i * 86400000),
-        open: o * 90,
-        high: c * 1.01 * 90,
-        low: o * 0.99 * 90,
-        close: c * 90,
-        volume: 100 + i.toDouble(),
-      ));
-    }
-    return bars;
-  }
-
-  @override
-  Future<double> last(String symbol) async =>
-      symbol.toUpperCase() == 'BTC' ? 60000.0 * 1.005 * 90 : 3000.0 * 90;
-}
 
 EngineAccount _richAccount({double cash = 1000000}) {
   final acct = EngineAccount(accountId: 'test');
@@ -221,6 +190,132 @@ void main() {
     test('rejects garbage keys', () {
       expect(() => decodePrivateKey(base64Encode([1, 2, 3])),
           throwsA(isA<CoinbaseException>()));
+    });
+  });
+
+  group('limit orders', () {
+    test('rests, then fills when the live price crosses, at the limit', () {
+      final broker = PaperBroker(accountId: 't', initialCash: 1000000);
+      final r = broker.placeLimitOrder(
+          symbol: 'BTC', side: Side.buy, quantity: 0.01, limitPrice: 100);
+      expect(r.filled, isTrue);
+      expect(broker.limitOrders.length, 1);
+
+      expect(broker.processLimits({'BTC': 110}), isEmpty); // above limit
+      final fills = broker.processLimits({'BTC': 95}); // crossed
+      expect(fills.length, 1);
+      expect(fills.first.$2, 100); // fills AT the limit, never worse
+      expect(broker.account.positions['BTC']!.avgPrice, 100);
+      expect(broker.limitOrders, isEmpty);
+    });
+
+    test('sell limit fills on the way up', () {
+      final broker = PaperBroker(accountId: 't', initialCash: 1000000);
+      broker.placeMarketOrder(
+          symbol: 'ETH', side: Side.buy, quantity: 2, marketPrice: 100);
+      broker.placeLimitOrder(
+          symbol: 'ETH', side: Side.sell, quantity: 2, limitPrice: 120);
+      final fills = broker.processLimits({'ETH': 121});
+      expect(fills.length, 1);
+      expect(broker.account.realizedPnlToday, closeTo(40, 0.001));
+    });
+
+    test('snapshot round-trips resting limits', () {
+      final broker = PaperBroker(accountId: 't', initialCash: 1000000);
+      broker.placeLimitOrder(
+          symbol: 'BTC', side: Side.buy, quantity: 0.01, limitPrice: 100);
+      final restored = PaperBroker.fromSnapshot(broker.toSnapshot());
+      expect(restored.limitOrders.length, 1);
+      expect(restored.limitOrders.first.limitPrice, 100);
+    });
+  });
+
+  group('alerts', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('fires once on a fresh crossing, then re-arms', () async {
+      final engine = AlertEngine();
+      await engine.add(
+          symbol: 'BTC',
+          metric: AlertMetric.price,
+          op: AlertOp.above,
+          value: 100);
+
+      expect(await engine.check(prices: {'BTC': 90}, rsi: {}), isEmpty);
+      expect((await engine.check(prices: {'BTC': 105}, rsi: {})).length, 1);
+      expect(await engine.check(prices: {'BTC': 110}, rsi: {}), isEmpty);
+      expect(await engine.check(prices: {'BTC': 95}, rsi: {}), isEmpty);
+      expect((await engine.check(prices: {'BTC': 101}, rsi: {})).length, 1);
+    });
+
+    test('rsi alerts fire on oversold', () async {
+      final engine = AlertEngine();
+      await engine.add(
+          symbol: 'ETH', metric: AlertMetric.rsi, op: AlertOp.below, value: 30);
+      final fired = await engine.check(prices: {}, rsi: {'ETH': 28.5});
+      expect(fired.length, 1);
+      expect(fired.first.symbol, 'ETH');
+    });
+
+    test('rules persist across engine instances', () async {
+      final a = AlertEngine();
+      await a.add(
+          symbol: 'BTC', metric: AlertMetric.price, op: AlertOp.below, value: 50);
+      final b = AlertEngine();
+      await b.load();
+      expect(b.rules.length, 1);
+      expect(b.rules.first.describe(), 'BTC price ≤ 50');
+    });
+  });
+
+  group('portfolio analytics', () {
+    ExecutedTrade t(Side side, double qty, double px) => ExecutedTrade(
+        symbol: 'BTC', side: side, quantity: qty, filledPrice: px, at: DateTime.now());
+
+    test('realized pnl per closed lot uses the average entry', () {
+      final pnls = realizedPnlSeries(
+          [t(Side.buy, 1, 100), t(Side.buy, 1, 120), t(Side.sell, 2, 130)]);
+      expect(pnls.length, 1);
+      expect(pnls.first, closeTo(40, 0.001)); // avg entry 110, 2 sold @ 130
+    });
+
+    test('stats: win rate, profit factor, max drawdown', () {
+      final trades = [
+        t(Side.buy, 1, 100),
+        t(Side.sell, 1, 130), // +30
+        t(Side.buy, 1, 100),
+        t(Side.sell, 1, 80), // -20
+      ];
+      final now = DateTime.now();
+      final equity = [
+        EquityPoint(t: now, equity: 1000),
+        EquityPoint(t: now, equity: 1200), // peak
+        EquityPoint(t: now, equity: 900), // -25% from peak
+        EquityPoint(t: now, equity: 1100),
+      ];
+      final s = computeStats(trades: trades, equity: equity);
+      expect(s.trades, 4);
+      expect(s.winRatePct, closeTo(50, 0.01));
+      expect(s.profitFactor, closeTo(1.5, 0.01));
+      expect(s.maxDrawdownPct, closeTo(25, 0.01));
+      expect(s.netRealizedPnl, closeTo(10, 0.001));
+      expect(s.bestTrade, closeTo(30, 0.001));
+      expect(s.worstTrade, closeTo(-20, 0.001));
+    });
+
+    test('csv export has a header and one row per trade', () {
+      final csv = tradesCsv([
+        ExecutedTrade(
+            symbol: 'BTC',
+            side: Side.buy,
+            quantity: 0.01,
+            filledPrice: 5400000,
+            at: DateTime.parse('2026-01-01T10:00:00Z')),
+      ]);
+      final lines = csv.trim().split('\n');
+      expect(lines.first, startsWith('time,symbol,side'));
+      expect(lines.length, 2);
+      expect(lines.last, contains('BTC,BUY'));
     });
   });
 }

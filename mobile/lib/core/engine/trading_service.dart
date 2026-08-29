@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../agent/agent_engine.dart';
 import '../agent/llm_client.dart';
 import '../models.dart';
+import 'alerts.dart';
 import 'coinbase_client.dart';
 import 'paper_broker.dart';
 import 'risk_engine.dart';
@@ -45,6 +46,13 @@ class TradeExecution {
   final String? reason;
 }
 
+/// Result of one auto-refresh heartbeat.
+class RefreshTick {
+  RefreshTick({required this.alertsFired, required this.limitFills});
+  final List<AlertRule> alertsFired;
+  final List<(LimitOrder, double)> limitFills;
+}
+
 class TradingService {
   TradingService(
       {LiveCoinbaseMarket? marketClient,
@@ -65,6 +73,7 @@ class TradingService {
   late LiveCoinbaseMarket market;
   late RiskEngine risk;
   late TradingAgent agent;
+  late AlertEngine alerts = AlertEngine();
   PaperBroker? _paper;
   BrainConfig? _brain;
   Settings _settings = Settings();
@@ -86,7 +95,7 @@ class TradingService {
     final sp = await SharedPreferences.getInstance();
     final paperJson = sp.getString(_prefPaper);
     _paper = paperJson != null
-        ? PaperBroker.fromMap(jsonDecode(paperJson) as Map<String, dynamic>)
+        ? PaperBroker.fromSnapshot(jsonDecode(paperJson) as Map<String, dynamic>)
         : PaperBroker(accountId: 'phone-paper');
     _paper!.rollDay(DateTime.now().toUtc());
     final brainJson = sp.getString(_prefBrain);
@@ -133,8 +142,58 @@ class TradingService {
 
   Future<void> _persistPaper() async {
     final sp = await SharedPreferences.getInstance();
-    await sp.setString(_prefPaper, jsonEncode(paper.account.toMap()));
+    await sp.setString(_prefPaper, jsonEncode(paper.toSnapshot()));
   }
+
+  // -- refresh tick -----------------------------------------------------------
+  // One heartbeat of the app: mark positions to LIVE prices, fill resting
+  // limit orders that crossed, evaluate alerts. Called by the auto-refresh
+  // timer (providers) — the app "breathes" with the market.
+
+  Future<RefreshTick> refreshTick() async {
+    await ensureLoaded();
+    final prices = <String, double>{};
+    final rsiVals = <String, double>{};
+    for (final sym in market.symbols) {
+      try {
+        prices[sym] = await market.last(sym);
+      } catch (_) {/* keep last known */}
+    }
+    paper.markAll(prices);
+    final limitFills = paper.processLimits(prices);
+    if (limitFills.isNotEmpty) await _persistPaper();
+    await alerts.load();
+    final rsiSyms = alerts.rules
+        .where((r) => r.metric == AlertMetric.rsi)
+        .map((r) => r.symbol)
+        .toSet();
+    for (final sym in rsiSyms) {
+      try {
+        final s = await agent.toolIndicators(sym);
+        final r = s['rsi'];
+        if (r is num) rsiVals[sym] = r.toDouble();
+      } catch (_) {}
+    }
+    final fired = await alerts.check(prices: prices, rsi: rsiVals);
+    return RefreshTick(alertsFired: fired, limitFills: limitFills);
+  }
+
+  /// Latest live price for every tracked symbol.
+  Future<Map<String, double>> livePrices() async {
+    await ensureLoaded();
+    final prices = <String, double>{};
+    for (final sym in market.symbols) {
+      try {
+        prices[sym] = await market.last(sym);
+      } catch (_) {}
+    }
+    return prices;
+  }
+
+  /// News headlines (DuckDuckGo, no API key) — powers the news card and the
+  /// agent's web_search tool.
+  Future<List<Map<String, String>>> news({String query = 'bitcoin ethereum'}) =>
+      agent.toolWebSearch(query);
 
   // -- market data ---------------------------------------------------------
 
@@ -288,5 +347,71 @@ class TradingService {
   }) async {
     await ensureLoaded();
     return agent.runGoal(goal, broker: paper, brain: brain, onStep: onStep);
+  }
+
+  // -- manual orders (order ticket) ---------------------------------------------
+
+  /// Places a MANUAL market order (paper or live) after the same Risk-Engine
+  /// gate the AI proposals go through. [stopLoss]/[takeProfit] optional.
+  Future<TradeExecution> placeManualMarket({
+    required String symbol,
+    required Side side,
+    required double quantity,
+    required double marketPrice,
+    double? stopLoss,
+  }) async {
+    await ensureLoaded();
+    final verdict = risk.evaluate(
+      symbol: symbol,
+      side: side,
+      quantity: quantity,
+      marketPrice: marketPrice,
+      account: paper.account,
+      entryPrice: marketPrice,
+      stopLoss: stopLoss,
+      source: 'manual',
+    );
+    if (!verdict.allowed) {
+      return TradeExecution(
+          executed: false, mode: AccountMode.paper, reason: verdict.violations.first);
+    }
+    return execute(AgentProposal(
+      symbol: symbol,
+      side: side,
+      quantity: quantity,
+      marketPrice: marketPrice,
+      stopLoss: stopLoss,
+      rationale: 'Manual order from the chart order ticket',
+      verdict: verdict,
+    ), AccountMode.live);
+  }
+
+  /// Rests a MANUAL limit order on the paper broker (fills when the live
+  /// price crosses; checked by the 30s heartbeat). Risk-checked at limit.
+  Future<TradeExecution> placeManualLimit({
+    required String symbol,
+    required Side side,
+    required double quantity,
+    required double limitPrice,
+  }) async {
+    await ensureLoaded();
+    final verdict = risk.evaluate(
+      symbol: symbol,
+      side: side,
+      quantity: quantity,
+      marketPrice: limitPrice,
+      account: paper.account,
+      entryPrice: limitPrice,
+      source: 'manual',
+    );
+    if (!verdict.allowed) {
+      return TradeExecution(
+          executed: false, mode: AccountMode.paper, reason: verdict.violations.first);
+    }
+    final r = paper.placeLimitOrder(
+        symbol: symbol, side: side, quantity: quantity, limitPrice: limitPrice);
+    await _persistPaper();
+    return TradeExecution(
+        executed: r.filled, mode: AccountMode.paper, reason: r.reason);
   }
 }

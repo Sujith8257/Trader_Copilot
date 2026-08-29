@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/models.dart';
@@ -10,6 +13,8 @@ import 'ui/screens/journal_screen.dart';
 import 'ui/screens/onboarding_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/theme.dart';
+import 'ui/widgets/alert_center.dart';
+import 'ui/widgets/lock_gate.dart';
 
 void main() => runApp(const ProviderScope(child: TraderCopilotApp()));
 
@@ -39,8 +44,10 @@ class BootGate extends ConsumerWidget {
     final seen = ref.watch(startupPrefsProvider);
     return seen.when(
       loading: () => const _Splash(),
-      error: (_, _) => const HomeShell(),
-      data: (seen) => seen ? const HomeShell() : const OnboardingScreen(),
+      error: (_, _) => const LockGate(child: HomeShell()),
+      data: (seen) => seen
+          ? const LockGate(child: HomeShell())
+          : const OnboardingScreen(),
     );
   }
 }
@@ -71,11 +78,48 @@ const _dests = [
   _Dest(Icons.menu_book_outlined, Icons.menu_book, 'Journal'),
 ];
 
-class HomeShell extends ConsumerWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends ConsumerState<HomeShell> {
+  StreamSubscription? _alertSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // The LIVE heartbeat: marks the account, fills limit orders, checks
+    // alerts every 30s while the app is open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(autoRefreshProvider.notifier).start();
+    });
+    // Surface freshly-fired alerts as a snackbar.
+    ref.listenManual(lastFiredAlertsProvider, (prev, next) {
+      if (next.isEmpty || !mounted) return;
+      HapticFeedback.mediumImpact();
+      final msg = next.length == 1
+          ? '🔔 ${next.first.describe()} triggered!'
+          : '🔔 ${next.length} alerts triggered!';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 4),
+      ));
+      ref.read(unreadAlertsProvider.notifier).clear();
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertSub?.cancel();
+    ref.read(autoRefreshProvider.notifier).stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final index = ref.watch(tabIndexProvider);
     final pages = const [
       DashboardScreen(),
@@ -120,7 +164,7 @@ class HomeShell extends ConsumerWidget {
               Text('Trader Copilot'),
             ],
           ),
-          actions: const [_SettingsButton(), ModeToggle()],
+          actions: const [AlertBell(), _SettingsButton(), ModeToggle()],
         ),
         body: body,
         bottomNavigationBar: wide

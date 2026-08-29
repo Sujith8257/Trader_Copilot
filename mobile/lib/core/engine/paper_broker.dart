@@ -110,6 +110,49 @@ class FillResult {
   final String? reason;
 }
 
+/// A resting limit order held by the paper broker. Fills when the LIVE
+/// market price crosses [limitPrice] (buy: price <= limit; sell: price >= limit).
+class LimitOrder {
+  LimitOrder({
+    required this.id,
+    required this.symbol,
+    required this.side,
+    required this.quantity,
+    required this.limitPrice,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String symbol;
+  final Side side;
+  final double quantity;
+  final double limitPrice;
+  final DateTime createdAt;
+
+  bool crosses(double marketPrice) => side == Side.buy
+      ? marketPrice <= limitPrice
+      : marketPrice >= limitPrice;
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'symbol': symbol,
+        'side': side.name,
+        'quantity': quantity,
+        'limit_price': limitPrice,
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  static LimitOrder fromMap(Map<String, dynamic> m) => LimitOrder(
+        id: m['id'] as String,
+        symbol: m['symbol'] as String,
+        side: (m['side'] as String? ?? 'buy') == 'sell' ? Side.sell : Side.buy,
+        quantity: (m['quantity'] as num).toDouble(),
+        limitPrice: (m['limit_price'] as num).toDouble(),
+        createdAt: DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
+      );
+}
+
+
 class PaperBroker {
   PaperBroker({required String accountId, double initialCash = 1000000})
       : account = EngineAccount(accountId: accountId) {
@@ -123,6 +166,79 @@ class PaperBroker {
       : account = EngineAccount.fromMap(m);
 
   final EngineAccount account;
+
+  /// Resting limit orders (persisted with the account snapshot).
+  final List<LimitOrder> limitOrders = [];
+
+  /// Full persistence snapshot: account + resting limits.
+  Map<String, dynamic> toSnapshot() => {
+        ...account.toMap(),
+        'limit_orders': [for (final o in limitOrders) o.toMap()],
+      };
+
+  static PaperBroker fromSnapshot(Map<String, dynamic> m) {
+    final b = PaperBroker.fromMap(m);
+    b.limitOrders.addAll([
+      for (final o in (m['limit_orders'] as List? ?? []))
+        LimitOrder.fromMap(Map<String, dynamic>.from(o as Map)),
+    ]);
+    return b;
+  }
+
+  /// Submit a limit order (paper mode). It rests until the LIVE price
+  /// crosses it — checked by [processLimits] on every refresh tick.
+  FillResult placeLimitOrder({
+    required String symbol,
+    required Side side,
+    required double quantity,
+    required double limitPrice,
+  }) {
+    if (quantity <= 0 || limitPrice <= 0) {
+      return const FillResult(filled: false, reason: 'invalid order');
+    }
+    if (side == Side.buy && quantity * limitPrice > account.cash) {
+      return FillResult(filled: false, reason: 'insufficient cash for limit');
+    }
+    if (side == Side.sell) {
+      final pos = account.positions[symbol];
+      if (pos == null || pos.quantity < quantity) {
+        return FillResult(filled: false, reason: 'not enough $symbol to sell');
+      }
+    }
+    limitOrders.add(LimitOrder(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      symbol: symbol.toUpperCase(),
+      side: side,
+      quantity: quantity,
+      limitPrice: limitPrice,
+      createdAt: DateTime.now(),
+    ));
+    return FillResult(filled: true, price: null, reason: 'resting');
+  }
+
+  Future<void> cancelLimitOrder(String id) async =>
+      limitOrders.removeWhere((o) => o.id == id);
+
+  /// Check resting limits against LIVE prices; fill any that crossed at the
+  /// limit price. Returns (order, fillPrice) pairs; mutates state.
+  List<(LimitOrder, double)> processLimits(Map<String, double> prices) {
+    final fills = <(LimitOrder, double)>[];
+    for (final o in List<LimitOrder>.from(limitOrders)) {
+      final px = prices[o.symbol];
+      if (px == null || !o.crosses(px)) continue;
+      final r = placeMarketOrder(
+        symbol: o.symbol,
+        side: o.side,
+        quantity: o.quantity,
+        marketPrice: o.limitPrice, // fill at the limit, never worse
+      );
+      if (r.filled) {
+        limitOrders.remove(o);
+        fills.add((o, o.limitPrice));
+      }
+    }
+    return fills;
+  }
 
   /// Submit a market order at [marketPrice] (INR). MARKET orders fill
   /// immediately (paper liquidity is infinite); quantity pre-validated.

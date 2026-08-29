@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/agent/agent_engine.dart';
@@ -162,6 +163,9 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           _Pipeline(step: _step),
+          const SizedBox(height: 18),
+          const _AutopilotCard(),
+          const _PendingQueue(),
           const SizedBox(height: 18),
           const SectionHeader('Propose a trade'),
           Text(
@@ -405,6 +409,169 @@ class _Pipeline extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// Autopilot: the agentic crew re-runs on a timer while the app is open.
+/// Proposals land in the queue below — still approval-gated, still
+/// Risk-Engine-checked. Nothing ever auto-executes.
+class _AutopilotCard extends ConsumerWidget {
+  const _AutopilotCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ap = ref.watch(autopilotProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.auto_mode,
+                    size: 18, color: ap.enabled ? TC.gain : TC.onBgDim),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Autopilot',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ),
+                Switch(
+                  value: ap.enabled,
+                  activeThumbColor: TC.gain,
+                  onChanged: (v) {
+                    HapticFeedback.selectionClick();
+                    ref.read(autopilotProvider.notifier).setEnabled(v);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              ap.enabled
+                  ? (ap.running
+                      ? 'Crew is working on your goal…'
+                      : 'Watching the market every ${ap.intervalMinutes} min.'
+                          '${ap.lastRun == null ? '' : ' Last run ${ap.lastRun!.toLocal().toString().substring(11, 16)}.'}')
+                  : 'Off — the crew only runs when you ask.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (ap.enabled) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text('Every', style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(width: 8),
+                  for (final m in const [5, 15, 30, 60]) ...[
+                    ChoiceChip(
+                      label: Text(m >= 60 ? '1h' : '$m m'),
+                      selected: ap.intervalMinutes == m,
+                      onSelected: (_) => ref
+                          .read(autopilotProvider.notifier)
+                          .setInterval(m),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  const Spacer(),
+                  TextButton(
+                    onPressed: ap.running
+                        ? null
+                        : () =>
+                            ref.read(autopilotProvider.notifier).runOnce(),
+                    child: const Text('Run now'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The autopilot proposal queue. Approve = the same execute path as any
+/// other proposal (Risk Engine re-checked inside).
+class _PendingQueue extends ConsumerStatefulWidget {
+  const _PendingQueue();
+
+  @override
+  ConsumerState<_PendingQueue> createState() => _PendingQueueState();
+}
+
+class _PendingQueueState extends ConsumerState<_PendingQueue> {
+  String? _busyId;
+
+  Future<void> _approve(AgentProposal p) async {
+    final mode = ref.read(tradingModeProvider);
+    setState(() => _busyId = '${p.symbol}${p.side.name}');
+    try {
+      final exec = await ref.read(tradingServiceProvider).execute(p, mode);
+      if (!mounted) return;
+      if (exec.executed) {
+        ref.read(journalProvider.notifier).add(ExecutedTrade(
+              symbol: p.symbol,
+              side: p.side,
+              quantity: p.quantity,
+              filledPrice: exec.fillPrice ?? p.marketPrice,
+              at: DateTime.now(),
+            ));
+        ref.invalidate(accountProvider);
+        ref.invalidate(historyProvider);
+        ref.read(pendingProposalsProvider.notifier).remove(p);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${p.side.wire} ${p.quantity} ${p.symbol} '
+              'filled at ₹${(exec.fillPrice ?? p.marketPrice).toStringAsFixed(2)}'),
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Not executed: ${exec.reason ?? 'rejected'}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Execution failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final queue = ref.watch(pendingProposalsProvider).cast<AgentProposal>();
+    if (queue.isEmpty) return const SizedBox.shrink();
+    final live = ref.watch(tradingModeProvider) == AccountMode.live;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 18),
+        SectionHeader('Autopilot queue',
+            trailing: '${queue.length} awaiting you'),
+        for (final p in queue)
+          ProposalCard(
+            proposal: TradeProposal(
+              symbol: p.symbol,
+              side: p.side,
+              quantity: p.quantity,
+              entryPrice: p.marketPrice,
+              stopLoss: p.stopLoss,
+              takeProfit: p.takeProfit,
+              rationale: p.rationale,
+              confidence: p.confidence,
+              source: 'autopilot',
+            ),
+            verdict: p.verdict,
+            liveMode: live,
+            onApprove: p.verdict.allowed && _busyId == null
+                ? () => _approve(p)
+                : null,
+            onReject: () =>
+                ref.read(pendingProposalsProvider.notifier).remove(p),
+          ),
       ],
     );
   }

@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
+import '../widgets/alert_center.dart';
+import '../widgets/order_ticket.dart';
 
-/// Full-screen candlestick chart for one symbol.
-///
-/// Crypto bars come from LIVE Coinbase daily candles (INR-converted); stocks
-/// use the backend's market source. Range chips pick how many bars to show.
+/// Full-screen candlestick chart for one symbol — LIVE Coinbase OHLCV in INR.
+/// Timeframes: 1H / 6H / 1D. Drag across the chart to scrub any bar (OHLC
+/// readout), pin to watchlist, place a market/limit order, or create an alert.
 class ChartScreen extends ConsumerStatefulWidget {
   const ChartScreen({super.key, required this.symbol});
 
@@ -22,6 +24,7 @@ class ChartScreen extends ConsumerStatefulWidget {
 class _ChartScreenState extends ConsumerState<ChartScreen> {
   late Future<CandleSeries> _future;
   int _range = 90;
+  String _granularity = 'ONE_DAY';
 
   @override
   void initState() {
@@ -32,7 +35,8 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
   void _load() {
     final svc = ref.read(tradingServiceProvider);
     _future = svc.ensureLoaded().then((_) async {
-      final bars = await svc.market.bars(widget.symbol);
+      final bars = await svc.market
+          .bars(widget.symbol, granularity: _granularity);
       return CandleSeries(
         symbol: widget.symbol.toUpperCase(),
         market: Market.crypto,
@@ -48,6 +52,17 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
       appBar: AppBar(
         title: Text(widget.symbol),
         actions: [
+          IconButton(
+            tooltip: 'Trade',
+            icon: const Icon(Icons.bolt, size: 20),
+            onPressed: () =>
+                showOrderTicket(context, ref, symbol: widget.symbol),
+          ),
+          IconButton(
+            tooltip: 'Create alert',
+            icon: const Icon(Icons.add_alert_outlined, size: 20),
+            onPressed: () => showAlertCenter(context, ref),
+          ),
           IconButton(
             tooltip: 'Reload',
             icon: const Icon(Icons.refresh),
@@ -69,35 +84,55 @@ class _ChartScreenState extends ConsumerState<ChartScreen> {
           if (series.bars.isEmpty) {
             return const Center(child: Text('No data for this symbol.'));
           }
-          return _ChartBody(series: series, range: _range, onRange: (r) {
-            setState(() {
-              _range = r;
+          return _ChartBody(
+            series: series,
+            range: _range,
+            granularity: _granularity,
+            onRange: (r) => setState(() => _range = r),
+            onGranularity: (g) => setState(() {
+              _granularity = g;
               _load();
-            });
-          });
+            }),
+          );
         },
       ),
     );
   }
 }
 
-class _ChartBody extends ConsumerWidget {
-  const _ChartBody(
-      {required this.series, required this.range, required this.onRange});
+class _ChartBody extends ConsumerStatefulWidget {
+  const _ChartBody({
+    required this.series,
+    required this.range,
+    required this.granularity,
+    required this.onRange,
+    required this.onGranularity,
+  });
 
   final CandleSeries series;
   final int range;
+  final String granularity;
   final ValueChanged<int> onRange;
+  final ValueChanged<String> onGranularity;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bars = series.bars.length > range
-        ? series.bars.sublist(series.bars.length - range)
-        : series.bars;
+  ConsumerState<_ChartBody> createState() => _ChartBodyState();
+}
+
+class _ChartBodyState extends ConsumerState<_ChartBody> {
+  int? _scrub; // bar index under the finger; null = show the live bar
+
+  @override
+  Widget build(BuildContext context) {
+    final bars = widget.series.bars.length > widget.range
+        ? widget.series.bars.sublist(widget.series.bars.length - widget.range)
+        : widget.series.bars;
     final last = bars.last;
     final first = bars.first;
     final changePct = (last.close / first.close - 1) * 100;
-    final isLive = series.source.contains('coinbase');
+    final isLive = widget.series.source.contains('coinbase');
+    final shown =
+        _scrub == null || _scrub! >= bars.length ? last : bars[_scrub!];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -106,7 +141,7 @@ class _ChartBody extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Row(
             children: [
-              Text(formatINR(last.close),
+              Text(formatINR(shown.close),
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(width: 10),
               Text(
@@ -131,14 +166,28 @@ class _ChartBody extends ConsumerWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Row(
             children: [
+              for (final g in const [
+                ('1H', 'ONE_HOUR'),
+                ('6H', 'SIX_HOUR'),
+                ('1D', 'ONE_DAY'),
+              ]) ...[
+                ChoiceChip(
+                  label: Text(g.$1),
+                  selected: widget.granularity == g.$2,
+                  onSelected: (_) => widget.onGranularity(g.$2),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 8),
+              ],
+              const Spacer(),
               for (final r in const [30, 60, 90]) ...[
                 ChoiceChip(
-                  label: Text('$r d'),
-                  selected: range == r,
-                  onSelected: (_) => onRange(r),
+                  label: Text('$r'),
+                  selected: widget.range == r,
+                  onSelected: (_) => widget.onRange(r),
                   visualDensity: VisualDensity.compact,
                 ),
                 const SizedBox(width: 8),
@@ -146,12 +195,32 @@ class _ChartBody extends ConsumerWidget {
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            _scrub == null
+                ? 'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
+                    'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}'
+                : '${shown.time.toLocal().toString().substring(0, 10)}   '
+                    'O ${formatINR(shown.open)}   H ${formatINR(shown.high)}   '
+                    'L ${formatINR(shown.low)}   C ${formatINR(shown.close)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(4, 8, 8, 4),
-            child: CustomPaint(
-              painter: CandlePainter(bars: bars),
-              child: const SizedBox.expand(),
+            child: GestureDetector(
+              onHorizontalDragUpdate: (d) =>
+                  _scrubTo(d.localPosition.dx, bars.length),
+              onTapDown: (d) => _scrubTo(d.localPosition.dx, bars.length),
+              onHorizontalDragEnd: (_) => setState(() => _scrub = null),
+              child: CustomPaint(
+                painter: CandlePainter(
+                    bars: bars,
+                    highlight: _scrub == null ? -1 : _scrub!),
+                child: const SizedBox.expand(),
+              ),
             ),
           ),
         ),
@@ -161,7 +230,7 @@ class _ChartBody extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: FilledButton.tonalIcon(
               icon: const Icon(Icons.auto_awesome, size: 18),
-              label: Text('Ask Copilot about ${series.symbol}'),
+              label: Text('Ask Copilot about ${widget.series.symbol}'),
               onPressed: () {
                 ref.read(tabIndexProvider.notifier).set(1);
                 Navigator.of(context).pop();
@@ -171,6 +240,13 @@ class _ChartBody extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  void _scrubTo(double dx, int count) {
+    final width = context.size?.width ?? 1;
+    final idx = ((dx / width) * count).floor().clamp(0, count - 1);
+    HapticFeedback.selectionClick();
+    setState(() => _scrub = idx);
   }
 }
 
@@ -210,9 +286,10 @@ class _ErrorView extends StatelessWidget {
 }
 
 class CandlePainter extends CustomPainter {
-  CandlePainter({required this.bars});
+  CandlePainter({required this.bars, this.highlight = -1});
 
   final List<Candle> bars;
+  final int highlight; // index to outline while scrubbing (-1 = none)
 
   static const _gridLines = 4;
   static const _volumeFraction = 0.16; // bottom band reserved for volume
@@ -241,7 +318,8 @@ class CandlePainter extends CustomPainter {
         .map((b) => b.volume ?? 0)
         .reduce(_max)
         .clamp(1e-9, double.infinity);
-    double yVol(double v) => volumeRect.bottom - (v / maxVol) * volumeRect.height;
+    double yVol(double v) =>
+        volumeRect.bottom - (v / maxVol) * volumeRect.height;
 
     // grid + price labels
     final grid = Paint()
@@ -292,6 +370,20 @@ class CandlePainter extends CustomPainter {
       }
     }
 
+    // crosshair highlight of the scrubbed bar
+    if (highlight >= 0 && highlight < n) {
+      final b = bars[highlight];
+      final x = priceRect.left + slot * (highlight + 0.5);
+      final cross = Paint()
+        ..color = TC.info.withValues(alpha: 0.7)
+        ..strokeWidth = 1;
+      canvas.drawLine(
+          Offset(x, plot.top), Offset(x, volumeRect.bottom), cross);
+      canvas.drawLine(
+          Offset(plot.left, yOf(b.close)), Offset(plot.right, yOf(b.close)),
+          cross);
+    }
+
     // last-price marker (dashed)
     final last = bars.last;
     final ly = yOf(last.close);
@@ -319,5 +411,6 @@ class CandlePainter extends CustomPainter {
   static double _max(double a, double b) => a > b ? a : b;
 
   @override
-  bool shouldRepaint(CandlePainter old) => old.bars != bars;
+  bool shouldRepaint(CandlePainter old) =>
+      old.bars != bars || old.highlight != highlight;
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
@@ -33,8 +34,10 @@ class DashboardScreen extends ConsumerWidget {
             const _LiveSourceChip(),
             _HeroCard(account),
             const SizedBox(height: 16),
+            const _WatchlistCard(),
             _AllocationCard(account),
             const _RadarCard(),
+            const _NewsCard(),
             const SizedBox(height: 20),
             SectionHeader(
               'Open positions',
@@ -339,11 +342,12 @@ class _ErrorView extends StatelessWidget {
               child: const Icon(Icons.cloud_off, size: 32, color: TC.loss),
             ),
             const SizedBox(height: 16),
-            Text('Cannot reach the backend',
+            Text('Cannot reach Coinbase',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'Start it with:  cd backend && uvicorn app.main:app --reload',
+              'Check your internet connection — every price and chart in this '
+              'app comes from the LIVE Coinbase API.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -374,7 +378,7 @@ class _RadarCard extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        SectionHeader('AI Radar', trailing: 'tap a symbol for live charts'),
+        SectionHeader('AI Radar', trailing: 'tap for charts · pin to watch'),
         SizedBox(
           height: 124,
           child: ListView.separated(
@@ -384,59 +388,11 @@ class _RadarCard extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, i) {
               final r = rows[i];
-              final up = r.changePct >= 0;
-              final c = up ? TC.gain : TC.loss;
-              return InkWell(
-                borderRadius: BorderRadius.circular(16),
+              return _SymbolTile(
+                row: r,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => ChartScreen(symbol: r.symbol),
-                  ),
-                ),
-                child: Container(
-                  width: 134,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: TC.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: TC.outline),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              r.symbol,
-                              style: Theme.of(context).textTheme.titleSmall,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Icon(
-                            r.trend == 'UP'
-                                ? Icons.trending_up
-                                : Icons.trending_down,
-                            size: 15,
-                            color: r.trend == 'UP' ? TC.gain : TC.loss,
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Text(
-                        formatINR(r.last),
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      Text(
-                        '${up ? '+' : ''}${r.changePct.toStringAsFixed(2)}%',
-                        style: TextStyle(
-                            color: c, fontSize: 11.5, fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        r.rsi == null ? r.trend : 'RSI ${r.rsi!.toStringAsFixed(0)}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
                   ),
                 ),
               );
@@ -449,3 +405,161 @@ class _RadarCard extends ConsumerWidget {
 }
 
 
+
+/// One pinned or radar symbol tile with a watchlist pin.
+class _SymbolTile extends ConsumerWidget {
+  const _SymbolTile({required this.row, required this.onTap});
+
+  final MarketRow row;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pinned = ref.watch(watchlistProvider).contains(row.symbol);
+    final up = row.changePct >= 0;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      onLongPress: () async {
+        HapticFeedback.selectionClick();
+        await ref.read(watchlistProvider.notifier).toggle(row.symbol);
+      },
+      child: Container(
+        width: 134,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: TC.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: pinned ? TC.gain.withValues(alpha: 0.5) : TC.outline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    row.symbol,
+                    style: Theme.of(context).textTheme.titleSmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () async {
+                    HapticFeedback.selectionClick();
+                    await ref
+                        .read(watchlistProvider.notifier)
+                        .toggle(row.symbol);
+                  },
+                  child: Icon(
+                    pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    size: 14,
+                    color: pinned ? TC.gain : TC.onBgDim,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  row.trend == 'UP' ? Icons.trending_up : Icons.trending_down,
+                  size: 15,
+                  color: row.trend == 'UP' ? TC.gain : TC.loss,
+                ),
+              ],
+            ),
+            const Spacer(),
+            Text(
+              formatINR(row.last),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text(
+              '${up ? '+' : ''}${row.changePct.toStringAsFixed(1)}%  '
+              'RSI ${row.rsi?.toStringAsFixed(0) ?? '-'}',
+              style:
+                  TextStyle(fontSize: 11.5, color: up ? TC.gain : TC.loss),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pinned symbols at live prices — the watchlist section.
+class _WatchlistCard extends ConsumerWidget {
+  const _WatchlistCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pinned = ref.watch(watchlistProvider);
+    final rows = ref.watch(marketOverviewProvider).value ?? const [];
+    if (pinned.isEmpty) return const SizedBox.shrink();
+    final watched = rows.where((r) => pinned.contains(r.symbol)).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader('Watchlist', trailing: 'pinned symbols'),
+        SizedBox(
+          height: 124,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            itemCount: watched.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, i) {
+              final r = watched[i];
+              return _SymbolTile(
+                row: r,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ChartScreen(symbol: r.symbol),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Real crypto headlines via DuckDuckGo (the agent's own web_search tool).
+class _NewsCard extends ConsumerWidget {
+  const _NewsCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final news = ref.watch(newsProvider).value;
+    if (news == null || news.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        SectionHeader('Market news', trailing: 'via web search'),
+        ...news.take(3).map((n) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: TC.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: TC.outline),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(n['title'] ?? '',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  if ((n['snippet'] ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(n['snippet']!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ],
+              ),
+            )),
+      ],
+    );
+  }
+}
