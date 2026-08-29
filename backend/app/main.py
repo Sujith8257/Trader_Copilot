@@ -10,11 +10,26 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .core.brokers.paper import PaperBroker
 from .core.models import AccountMode, Order, OrderType, RiskConfig, Side, TradeProposal
 from .core.risk_engine import RiskEngine
+
+app = FastAPI(
+    title="Trader Copilot API",
+    version="0.1.0",
+    description="Deterministic trading core: risk engine + paper broker.",
+)
+
+# The Flutter app (web) runs on a different origin during development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # dev only; restrict before any public deployment
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app = FastAPI(
     title="Trader Copilot API",
