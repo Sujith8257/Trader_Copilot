@@ -157,11 +157,17 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
       return Scaffold(
         appBar: AppBar(
-          title: const Row(
+          title: Row(
             children: [
-              _BrandBadge(size: 34),
-              SizedBox(width: 10),
-              Text('Trader Copilot'),
+              const _BrandBadge(size: 34),
+              const SizedBox(width: 10),
+              const Flexible(
+                child: Text(
+                  'Trader Copilot',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
             ],
           ),
           actions: const [AlertBell(), _SettingsButton(), ModeToggle()],

@@ -174,7 +174,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
-            childAspectRatio: 3.4,
+            childAspectRatio: 2.6, // tall enough for label + 2-line subtitle
             children: [
               for (final k in BrainKind.values)
                 _ProviderCard(
