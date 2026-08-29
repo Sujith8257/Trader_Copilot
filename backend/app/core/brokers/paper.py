@@ -34,6 +34,11 @@ class PaperBroker(BrokerClient):
             day_start_equity=initial_cash,
         )
         self._orders: dict[str, Order] = {}
+        # Equity curve: one point per fill (+ the starting point). Honest
+        # mark-to-market history for charts; nothing synthetic.
+        self._equity_history: list[dict] = [
+            {"t": utcnow().isoformat(), "equity": self._account.equity}
+        ]
 
     # -- BrokerClient surface ------------------------------------------- #
     def health(self) -> BrokerHealth:
@@ -132,3 +137,10 @@ class PaperBroker(BrokerClient):
                 if pos.quantity <= 1e-9:
                     del self._account.positions[order.symbol]
         self._account.trades_today += 1
+        self._equity_history.append(
+            {"t": utcnow().isoformat(), "equity": self._account.equity}
+        )
+
+    def get_history(self) -> list[dict]:
+        """The equity curve so far (t ISO-8601, equity INR)."""
+        return list(self._equity_history)

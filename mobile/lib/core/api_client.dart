@@ -112,6 +112,26 @@ class ApiClient {
     _ensureOk(r);
   }
 
+  /// Compact market overview for the AI Radar card.
+  Future<List<MarketRow>> marketOverview() async {
+    final r = await _client.get(_uri('/market/overview'));
+    _ensureOk(r);
+    final body = jsonDecode(r.body) as Map<String, dynamic>;
+    return (body['rows'] as List? ?? [])
+        .map((row) => MarketRow.fromJson(row as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Equity curve of the paper account (per fill + live point).
+  Future<List<EquityPoint>> fetchAccountHistory() async {
+    final r = await _client.get(_uri('/account/history'));
+    _ensureOk(r);
+    final body = jsonDecode(r.body) as Map<String, dynamic>;
+    return (body['points'] as List? ?? [])
+        .map((p) => EquityPoint.fromJson(p as Map<String, dynamic>))
+        .toList();
+  }
+
   void _ensureOk(http.Response r) {
     if (r.statusCode < 200 || r.statusCode >= 300) {
       throw ApiError('Backend returned ${r.statusCode}: ${r.body}');

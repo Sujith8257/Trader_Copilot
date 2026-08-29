@@ -240,6 +240,85 @@ class EmptyState extends StatelessWidget {
   }
 }
 
+/// Minimal equity sparkline — pure CustomPaint, no chart dependency.
+class Sparkline extends StatelessWidget {
+  const Sparkline({
+    super.key,
+    required this.values,
+    this.color = TC.gain,
+    this.height = 40,
+  });
+
+  final List<double> values;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: height,
+      child: CustomPaint(painter: _SparkPainter(values, color)),
+    );
+  }
+}
+
+class _SparkPainter extends CustomPainter {
+  _SparkPainter(this.values, this.color);
+
+  final List<double> values;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    double lo = values.reduce((a, b) => a < b ? a : b);
+    double hi = values.reduce((a, b) => a > b ? a : b);
+    if (hi - lo < 0.0001) {
+      lo -= 1;
+      hi += 1; // flat series still draws a line
+    }
+    final dx = values.length == 1 ? 0.0 : size.width / (values.length - 1);
+    final dy = size.height - 4;
+    Offset pt(int i) => Offset(
+          i * dx,
+          2 + (hi - values[i]) / (hi - lo) * dy,
+        );
+
+    final path = Path()..moveTo(pt(0).dx, pt(0).dy);
+    for (var i = 1; i < values.length; i++) {
+      path.lineTo(pt(i).dx, pt(i).dy);
+    }
+    canvas.drawPath(path, paint);
+
+    // soft fill under the line
+    final fill = Path.from(path)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(
+      fill,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color.withValues(alpha: 0.25), color.withValues(alpha: 0)],
+        ).createShader(Offset.zero & size),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.color != color;
+}
+
 /// Pulsing placeholder box used by skeleton loading views.
 class Skeleton extends StatefulWidget {
   const Skeleton({

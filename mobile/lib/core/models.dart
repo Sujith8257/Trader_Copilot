@@ -269,3 +269,41 @@ class AgentReply {
     );
   }
 }
+
+/// One row of the market overview (the AI Radar on the dashboard).
+class MarketRow {
+  MarketRow({
+    required this.symbol,
+    required this.last,
+    required this.changePct,
+    required this.rsi,
+    required this.trend,
+  });
+
+  final String symbol;
+  final double last;
+  final double changePct;
+  final double? rsi;
+  final String trend;
+
+  factory MarketRow.fromJson(Map<String, dynamic> j) => MarketRow(
+        symbol: j['symbol'] as String,
+        last: (j['last'] as num).toDouble(),
+        changePct: (j['change_pct'] as num).toDouble(),
+        rsi: (j['rsi'] as num?)?.toDouble(),
+        trend: j['trend'] as String,
+      );
+}
+
+/// One point of the account equity curve.
+class EquityPoint {
+  EquityPoint({required this.t, required this.equity});
+
+  final DateTime t;
+  final double equity;
+
+  factory EquityPoint.fromJson(Map<String, dynamic> j) => EquityPoint(
+        t: DateTime.parse(j['t'] as String),
+        equity: (j['equity'] as num).toDouble(),
+      );
+}

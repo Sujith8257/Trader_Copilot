@@ -117,3 +117,32 @@ class TestAgentEngine:
         r = client.get("/market/overview")
         rows = r.json()["rows"]
         assert len(rows) == 8 and all("rsi" in x for x in rows)
+
+
+class TestEquityHistory:
+    def test_history_has_starting_point(self):
+        points = client.get("/account/history").json()["points"]
+        assert len(points) >= 1
+        assert {"t", "equity"} <= set(points[0])
+
+    def test_history_grows_on_fill(self):
+        before = len(client.get("/account/history").json()["points"])
+        r = client.post("/orders/paper", params={
+            "symbol": "ITC", "side": "BUY", "quantity": 1,
+            "market_price": 460.0,
+        })
+        assert r.status_code == 200
+        after = client.get("/account/history").json()["points"]
+        # the previous "live" point is replaced: +1 fill point +1 fresh live
+        assert len(after) == before + 1
+        acct = client.get("/account").json()
+        assert abs(after[-1]["equity"] - acct["equity"]) < 0.01
+        # restore shared state for other test modules (sell back at cost)
+        client.post("/orders/paper", params={
+            "symbol": "ITC", "side": "SELL", "quantity": 1,
+            "market_price": 460.0,
+        })
+
+    def test_indicators_include_close_series(self):
+        body = client.get("/market/indicators/INFY").json()
+        assert len(body["closes"]) == 120

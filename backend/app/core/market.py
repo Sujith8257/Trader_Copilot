@@ -1,7 +1,8 @@
-"""Deterministic market simulator — a seeded synthetic OHLC universe so the
+"""Deterministic market simulator - a seeded synthetic OHLC universe so the
 entire agentic demo (scanner, indicators, proposals) runs fully offline.
 Replace with a real market-data service in Phase 3; the agent's tool surface
-stays identical."""
+stays identical.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +24,8 @@ UNIVERSE: dict[str, float] = {
 class MarketSim:
     def __init__(self, days: int = 120, seed: int = 7) -> None:
         self._bars: dict[str, list[dict]] = {}
+        self._days = days
+        self._seed = seed
         rng = random.Random(seed)
         for sym, base in UNIVERSE.items():
             # per-symbol regime: some trending up, some down, different vols
@@ -55,3 +58,16 @@ class MarketSim:
 
     def last(self, symbol: str) -> float:
         return self._bars[symbol.strip().upper()][-1]["c"]
+
+
+class SlicedMarket(MarketSim):
+    """A read-only view of `source` revealing only the first `cutoff` bars of each
+    symbol. Used by the backtest runner so the agent never sees the future
+    (no look-ahead bias) - each bar becomes a tradable day in turn."""
+
+    def __init__(self, source: "MarketSim", cutoff: int) -> None:
+        # Reuse the generated bars but truncate every series to `cutoff`.
+        self._bars = {sym: bars[:cutoff] for sym, bars in source._bars.items()}
+        # `days`/`seed` are unused for slicing but keep the base contract sane.
+        self._days = cutoff
+        self._seed = getattr(source, "_seed", 0)

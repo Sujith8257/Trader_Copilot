@@ -195,13 +195,33 @@ Gotchas learned: never put non-latin1 chars (ellipsis, rupee sign) into
 MockClient silently and the agent appears to fail; mock bodies in tests now
 use plain ASCII.
 
-Next ideas if continuing: equity history chart + sparkline (backend must track
-history), onboarding tour, WebSocket streaming for chat, per-symbol radar card
-on the dashboard from `/market/overview`, SQLite persistence of journal +
-profile, Android SDK 36 upgrade, llama.cpp FFI local brain.
+Next ideas if continuing: WebSocket streaming for chat, onboarding tour,
+SQLite persistence of journal + profile, Android SDK 36 upgrade, llama.cpp FFI
+local brain, per-symbol chart screen using the `closes` series that
+`/market/indicators/{symbol}` now returns.
 
 Roadmap after that: real market data provider, backtesting engine, broker
 packs, model registry/hub.
+
+## 10. Round 2 — AI Radar + equity sparkline (latest)
+
+- `PaperBroker` now records an **honest equity curve** (`_equity_history`:
+  start point + one point per fill); `GET /account/history` returns
+  `points: [{t, equity}]` with a live mark-to-market point appended
+- `/market/indicators/{symbol}` now also returns the full `closes` series
+  (120 bars) for client-side charts
+- Mobile: `MarketRow`/`EquityPoint` models, `marketOverview()` +
+  `fetchAccountHistory()` API, `marketOverviewProvider` + `historyProvider`
+- Dashboard: **AI Radar strip** (horizontal symbol cards with price, day
+  change, RSI, trend arrow — tapping one opens the Agent tab) and an
+  **equity sparkline** in the hero card (pure `CustomPaint`, zero chart deps,
+  gradient fill, handles flat series)
+- Tests: backend **57 passing** (3 new: history shape, grows-on-fill with
+  state-restoring sell-back, closes series); mobile **15 passing**. Widget
+  tests had to scroll to below-fold items after the radar added height —
+  note `findsAtLeastNWidgets` + `scrollUntilVisible` used there
+- Gotcha: Riverpod 3 renamed `valueOrNull` → `.value`; `(_, __)` params trip
+  the unused-name lint — use `(_, _)`
 
 ## 9. Conventions
 

@@ -36,7 +36,7 @@ final journalProvider =
     NotifierProvider<JournalNotifier, List<ExecutedTrade>>(
         JournalNotifier.new);
 
-/// Selected tab of the shell (0 Portfolio, 1 Copilot, 2 Journal).
+/// Selected tab of the shell (0 Portfolio, 1 Agent, 2 Copilot, 3 Journal).
 /// A provider so empty-state CTAs can navigate (e.g. "Open Copilot").
 class TabIndexNotifier extends Notifier<int> {
   @override
@@ -47,4 +47,16 @@ class TabIndexNotifier extends Notifier<int> {
 
 final tabIndexProvider =
     NotifierProvider<TabIndexNotifier, int>(TabIndexNotifier.new);
+
+/// Market overview rows for the AI Radar card on the dashboard.
+final marketOverviewProvider =
+    FutureProvider.autoDispose<List<MarketRow>>((ref) async {
+  return ref.watch(apiClientProvider).marketOverview();
+});
+
+/// Equity curve of the paper account (for the dashboard sparkline).
+final historyProvider =
+    FutureProvider.autoDispose<List<EquityPoint>>((ref) async {
+  return ref.watch(apiClientProvider).fetchAccountHistory();
+});
 

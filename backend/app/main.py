@@ -7,17 +7,29 @@ the Risk Engine decides what happens next, never the model itself.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .core.agent import AgentEngine, AgentResult, TradingProfile
 from .core.brokers.paper import PaperBroker
 from .core.indicators import snapshot
-from .core.market import MarketSim
-from .core.models import AccountMode, Order, OrderType, RiskConfig, Side, TradeProposal
+from .core.market import MarketSim, SlicedMarket
+from .core.models import (
+        AccountMode,
+    Order,
+    OrderStatus,
+    OrderType,
+    RiskConfig,
+    Side,
+    TradeProposal,
+    utcnow,
+)
 from .core.risk_engine import RiskEngine
 
 app = FastAPI(
@@ -80,6 +92,16 @@ def account() -> dict:
             for s, p in acct.positions.items()
         },
     }
+
+
+@app.get("/account/history")
+def account_history() -> dict:
+    """Equity curve (one point per fill + starting point) for charts."""
+    points = paper.get_history()
+    # Append the live equity so the chart reflects mark-to-market now.
+    acct = paper.get_account()
+    points = points + [{"t": utcnow().isoformat(), "equity": acct.equity}]
+    return {"points": points}
 
 
 @app.post("/proposals/evaluate")
@@ -158,7 +180,11 @@ def market_overview() -> dict:
 
 @app.get("/market/indicators/{symbol}")
 def market_indicators(symbol: str) -> dict:
-    return {"symbol": symbol.upper(), **snapshot(market.bars(symbol))}
+    return {
+        "symbol": symbol.upper(),
+        **snapshot(market.bars(symbol)),
+        "closes": market.prices(symbol),  # full series for client charts
+    }
 
 
 @app.post("/agent/chat")
@@ -199,3 +225,167 @@ def update_profile(body: ProfileIn) -> dict:
     if body.max_position is not None and body.max_position > 0:
         profile.max_position = body.max_position
     return {"risk_level": profile.risk_level, "max_position": profile.max_position}
+
+
+# -- Agentic streaming -------------------------------------------------------- #
+
+
+@app.websocket("/ws/agent")
+async def ws_agent(ws: WebSocket) -> None:
+    """Live, server-sent streaming of the agent's tool trace.
+
+    The on-device Copilot listens here when `streaming` is enabled (Model Hub).
+    The local brain computes a full AgentResult first, then ships each step in
+    rapid sequence so the UI animates reasoning in real time; with an LLM brain
+    the same channel carries tool calls back and forth. Proposal DRAFT only — the
+    Risk Engine verdict still gates, and the user still approves, execution."""
+    await ws.accept()
+    await ws.send_json({"type": "ready", "brain": agent.brain})
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                await ws.send_json({"type": "error", "error": "invalid JSON"})
+                continue
+            text = (msg.get("message") or "").strip()
+            if not text:
+                continue
+            r = agent.handle(text)
+            for st in r.steps:
+                await ws.send_json({"type": "step", "step": st.as_dict()})
+                await asyncio.sleep(0.05)  # "thinking in progress" feel
+            if r.opportunities:
+                await ws.send_json(
+                    {"type": "opportunities", "opportunities": r.opportunities}
+                )
+            await ws.send_json({"type": "reply", "reply": r.reply})
+            await ws.send_json({
+                "type": "done",
+                "brain": agent.brain,
+                "reply": r.reply,
+                "steps": [s.as_dict() for s in r.steps],
+                "proposal": r.proposal,
+                "verdict": r.verdict,
+                "opportunities": r.opportunities,
+            })
+    except WebSocketDisconnect:
+        pass
+
+
+@app.get("/agent/probe")
+def agent_probe() -> dict:
+    """Model Hub info: which brain is active, LLM env, and the local LLM
+    candidates the device can pull. RAM/CPU capability probing is done on the
+    phone itself; the backend advertises the manifest + current wiring."""
+    local_models = [
+        {"id": "gemma3", "label": "Gemma 3 1B", "params": "1.0B", "ram": "1.2 GB"},
+        {"id": "qwen2.5", "label": "Qwen2.5 0.5B", "params": "0.5B", "ram": "0.9 GB"},
+        {"id": "phi3", "label": "Phi-3 mini 4K", "params": "3.8B", "ram": "4.0 GB"},
+    ]
+    return {
+        "brain": agent.brain,
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "model": (
+            os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            if agent.brain == "llm"
+            else None
+        ),
+                "local_models": local_models,
+    }
+
+
+# -- Backtesting --------------------------------------------------------------- #
+
+
+class BacktestIn(BaseModel):
+    steps: int = Field(default=30, ge=5, le=60)
+    capital: float = Field(default=1_000_000.0, gt=0)
+    warmup: int = Field(default=50, ge=26)
+    min_score: float = Field(default=1.0, ge=0)
+
+
+@app.post("/backtest")
+def backtest_run(body: BacktestIn) -> dict:
+    """Backtest the Copilot's signal-following strategy against the seeded
+    market. A fresh throwaway broker is used so the live paper account is never
+    touched. Each day the agent only sees bars up to the warmup cutoff
+    (SlicedMarket - no look-ahead), drafts a proposal for the top opportunity,
+    and the Risk Engine gates it before a paper fill."""
+    src = MarketSim()
+    days = len(src.prices(next(iter(src.symbols()))))
+    warmup = min(body.warmup, max(26, days - body.steps))
+    bt_paper = PaperBroker(account_id="backtest", initial_cash=body.capital)
+    bt_engine = RiskEngine(RiskConfig(stop_loss_required=False))
+    prof = TradingProfile(risk_level="moderate", max_position=25_000.0)
+    bt = AgentEngine(src, bt_engine, bt_paper, prof)
+
+    curve: list[dict] = []
+    trades: list[dict] = []
+    for i in range(body.steps):
+        cutoff = warmup + i
+        bt.market = SlicedMarket(src, cutoff)  # hide the future from the agent
+        opps = bt._score_all()
+        opps.sort(key=lambda o: o["score"], reverse=True)
+        if opps and opps[0]["score"] >= body.min_score:
+            top = opps[0]
+            sym = top["symbol"]
+            res = AgentResult()
+            bt._tool_propose(res, sym, Side.BUY)
+            approved = (
+                res.proposal is not None
+                and res.verdict is not None
+                and res.verdict["allowed"]
+            )
+            if approved:
+                price = top["last"]
+                qty = res.proposal["quantity"]
+                result = bt_paper.place_order(
+                    Order(symbol=sym, side=Side.BUY, quantity=qty,
+                          order_type=OrderType.MARKET),
+                    price,
+                )
+                if result.status == OrderStatus.FILLED:
+                    trades.append({
+                        "symbol": sym, "qty": qty, "entry": price,
+                        "stop": res.proposal["stop_loss"],
+                        "target": res.proposal["take_profit"],
+                        "score": top["score"], "step": cutoff,
+                    })
+        curve.append({"t": cutoff, "equity": bt_paper.get_account().equity})
+
+    # Mark-to-market + close-out at the final prices for realized stats.
+    final_prices = {s: src.last(s) for s in src.symbols()}
+    bt_paper.mark_all(final_prices)
+    acct = bt_paper.get_account()
+    for sym, pos in list(acct.positions.items()):
+        bt_paper.place_order(
+            Order(symbol=sym, side=Side.SELL, quantity=pos.quantity,
+                  order_type=OrderType.MARKET),
+            pos.current_price,
+        )
+    wins = sum(1 for t in trades if src.last(t["symbol"]) > t["entry"])
+    equity = [c["equity"] for c in curve] or [0.0]
+    peak = equity[0]
+    max_dd = 0.0
+    for e in equity[1:]:
+        if e > peak:
+            peak = e
+        dd = (peak - e) / peak if peak else 0.0
+        if dd > max_dd:
+            max_dd = dd
+    total_return = (equity[-1] - equity[0]) / equity[0] if equity[0] else 0.0
+    return {
+        "capital": body.capital,
+        "steps": body.steps,
+        "warmup": warmup,
+        "final_equity": acct.equity,
+        "total_return_pct": round(total_return * 100, 2),
+        "max_drawdown_pct": round(max_dd * 100, 2),
+        "win_rate_pct": round((wins / len(trades) * 100) if trades else 0.0, 2),
+        "trades": len(trades),
+        "equity_curve": [
+            {"t": c["t"], "equity": round(c["equity"], 2)} for c in curve
+        ],
+    }

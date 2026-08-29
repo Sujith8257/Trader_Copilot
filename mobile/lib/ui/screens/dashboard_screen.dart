@@ -32,6 +32,7 @@ class DashboardScreen extends ConsumerWidget {
             _HeroCard(account),
             const SizedBox(height: 16),
             _AllocationCard(account),
+            const _RadarCard(),
             const SizedBox(height: 20),
             SectionHeader(
               'Open positions',
@@ -58,13 +59,17 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
-class _HeroCard extends StatelessWidget {
+class _HeroCard extends ConsumerWidget {
   const _HeroCard(this.account);
 
   final AccountState account;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final history = ref.watch(historyProvider).value;
+    final equitySeries = (history ?? const <EquityPoint>[])
+        .map((p) => p.equity)
+        .toList(growable: false);
     final delta =
         account.dayStart == null ? null : account.equity - account.dayStart!;
     return Container(
@@ -120,6 +125,10 @@ class _HeroCard extends StatelessWidget {
               ],
             ],
           ),
+          if (equitySeries.length >= 2) ...[
+            const SizedBox(height: 12),
+            Sparkline(values: equitySeries, height: 44),
+          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -281,7 +290,6 @@ class _ErrorView extends StatelessWidget {
 
   final String error;
   final VoidCallback onRetry;
-
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -317,6 +325,90 @@ class _ErrorView extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// AI Radar — live market overview strip. Tapping a symbol opens the
+/// agentic chat so the user can dig in ("analyze RELIANCE").
+class _RadarCard extends ConsumerWidget {
+  const _RadarCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rows = ref.watch(marketOverviewProvider).value;
+    if (rows == null || rows.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+        SectionHeader('AI Radar', trailing: 'tap a symbol to ask the agent'),
+        SizedBox(
+          height: 112,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            itemCount: rows.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, i) {
+              final r = rows[i];
+              final up = r.changePct >= 0;
+              final c = up ? TC.gain : TC.loss;
+              return InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => ref.read(tabIndexProvider.notifier).set(1),
+                child: Container(
+                  width: 134,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: TC.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: TC.outline),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              r.symbol,
+                              style: Theme.of(context).textTheme.titleSmall,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Icon(
+                            r.trend == 'UP'
+                                ? Icons.trending_up
+                                : Icons.trending_down,
+                            size: 15,
+                            color: r.trend == 'UP' ? TC.gain : TC.loss,
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Text(
+                        formatINR(r.last),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Text(
+                        '${up ? '+' : ''}${r.changePct.toStringAsFixed(2)}%',
+                        style: TextStyle(
+                            color: c, fontSize: 11.5, fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        r.rsi == null ? r.trend : 'RSI ${r.rsi!.toStringAsFixed(0)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

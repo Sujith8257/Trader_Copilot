@@ -66,6 +66,22 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
       if (request.url.path == '/config/kill') {
         return _ok({'trading_enabled': jsonDecode(request.body)['enabled']});
       }
+      if (request.url.path == '/market/overview') {
+        return _ok({
+          'rows': [
+            {'symbol': 'TATAMOTORS', 'last': 1020.0, 'change_pct': 1.2, 'rsi': 61.0, 'trend': 'UP'},
+            {'symbol': 'INFY', 'last': 1560.0, 'change_pct': -0.4, 'rsi': 48.0, 'trend': 'DOWN'},
+          ],
+        });
+      }
+      if (request.url.path == '/account/history') {
+        return _ok({
+          'points': [
+            {'t': '2026-08-29T09:00:00+00:00', 'equity': 1000000.0},
+            {'t': '2026-08-29T09:05:00+00:00', 'equity': 1000500.0},
+          ],
+        });
+      }
       return _ok({});
     }),
   );
@@ -94,12 +110,23 @@ void main() {
     expect(find.text('₹10,00,500'), findsOneWidget);
     // cash appears in the stat tile AND the allocation legend
     expect(find.text('₹9,75,500'), findsNWidgets(2));
-    // exposure appears in its stat tile, the position tile and the legend
-    expect(find.text('₹25,000'), findsNWidgets(3));
+    // exposure value appears in its stat tile, position tile and/or legend
+    // (some may be below the fold in the test viewport)
+    expect(find.text('₹25,000'), findsAtLeastNWidgets(2));
     expect(find.text('RELIANCE'), findsWidgets);
-    // unrealized pnl +500 → position chip; day delta also +500 today
-    expect(find.text('+₹500'), findsOneWidget);
+    // day-delta chip lives on the visible hero card
     expect(find.text('+₹500 today'), findsOneWidget);
+    // the position P&L chip is in the position tile — scroll down to it
+    await tester.scrollUntilVisible(
+      find.text('+₹500'),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('+₹500'), findsOneWidget);
+    // AI Radar strip from /market/overview
+    expect(find.text('AI Radar'), findsOneWidget);
+    expect(find.textContaining('TATAMOTORS'), findsOneWidget);
   });
 
   testWidgets('live mode is gated — selecting Live shows the locked dialog',
