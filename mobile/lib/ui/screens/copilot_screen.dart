@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../state/providers.dart';
+import '../theme.dart';
+import '../widgets/common.dart';
 import '../widgets/proposal_card.dart';
 
 /// The Copilot screen: a trade idea goes in, the deterministic Risk Engine
@@ -24,8 +27,9 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   final _marketPrice = TextEditingController(text: '2450');
   final _stopLoss = TextEditingController(text: '2400');
   final _takeProfit = TextEditingController(text: '2550');
-  final _confidence = TextEditingController(text: '0.72');
 
+  Side _side = Side.buy;
+  double _confidence = 72; // percent
   bool _evaluating = false;
   bool _executing = false;
   TradeProposal? _proposal;
@@ -34,23 +38,23 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
 
   @override
   void dispose() {
-    for (final c in [
-      _symbol,
-      _quantity,
-      _marketPrice,
-      _stopLoss,
-      _takeProfit,
-      _confidence
-    ]) {
+    for (final c in [_symbol, _quantity, _marketPrice, _stopLoss, _takeProfit]) {
       c.dispose();
     }
     super.dispose();
   }
 
+  int get _step {
+    if (_executing) return 3;
+    if (_verdict != null) return 2;
+    if (_evaluating) return 1;
+    return 0;
+  }
+
   TradeProposal _readProposal() {
     return TradeProposal(
       symbol: _symbol.text.trim().toUpperCase(),
-      side: Side.buy,
+      side: _side,
       quantity: double.parse(_quantity.text),
       entryPrice: double.tryParse(_marketPrice.text),
       stopLoss: double.tryParse(_stopLoss.text),
@@ -58,7 +62,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
       rationale:
           'Template rationale — the local LLM will generate this once the '
           'on-device runtime is integrated.',
-      confidence: double.tryParse(_confidence.text),
+      confidence: _confidence / 100,
       source: 'ai',
     );
   }
@@ -127,7 +131,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
         content: Text(result.filled
             ? 'Paper order FILLED: ${proposal.side.wire} '
                 '${proposal.quantity} ${proposal.symbol} @ '
-                '${result.filledPrice?.toStringAsFixed(2)}'
+                '${formatINR(result.filledPrice ?? 0, decimals: 2)}'
             : 'Order status: ${result.status}'),
       ));
     } catch (e) {
@@ -152,20 +156,38 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
     return Form(
       key: _formKey,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          Text('Propose a trade',
-              style: Theme.of(context).textTheme.titleMedium),
-          const Text(
-            'The AI can only propose. The Risk Engine decides, and nothing '
-            'executes without your approval.',
-            style: TextStyle(color: Colors.grey),
+          _Pipeline(step: _step),
+          const SizedBox(height: 18),
+          const SectionHeader('Propose a trade'),
+          Text(
+            'The AI can only propose. The deterministic Risk Engine decides, '
+            'and nothing executes without your approval.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
+          SegmentedButton<Side>(
+            segments: const [
+              ButtonSegment(
+                value: Side.buy,
+                icon: Icon(Icons.arrow_downward, size: 16),
+                label: Text('BUY'),
+              ),
+              ButtonSegment(
+                value: Side.sell,
+                icon: Icon(Icons.arrow_upward, size: 16),
+                label: Text('SELL'),
+              ),
+            ],
+            selected: {_side},
+            onSelectionChanged: (s) => setState(() => _side = s.first),
+          ),
+          const SizedBox(height: 14),
           TextFormField(
             controller: _symbol,
-            decoration: const InputDecoration(
-                labelText: 'Symbol', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Symbol'),
+            textCapitalization: TextCapitalization.characters,
             validator: (v) =>
                 (v == null || v.trim().isEmpty) ? 'Required' : null,
           ),
@@ -174,11 +196,10 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
             Expanded(
               child: TextFormField(
                 controller: _quantity,
-                decoration: const InputDecoration(
-                    labelText: 'Quantity', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Quantity'),
                 keyboardType: TextInputType.number,
                 validator: (v) =>
-                    (double.tryParse(v ?? '') ?? 0) > 0 ? null : 'Must be > 0',
+                    (double.tryParse(v ?? '') ?? 0) > 0 ? 'Must be > 0' : null,
               ),
             ),
             const SizedBox(width: 12),
@@ -186,10 +207,12 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               child: TextFormField(
                 controller: _marketPrice,
                 decoration: const InputDecoration(
-                    labelText: 'Market price', border: OutlineInputBorder()),
+                  labelText: 'Market price',
+                  prefixText: '₹ ',
+                ),
                 keyboardType: TextInputType.number,
                 validator: (v) =>
-                    (double.tryParse(v ?? '') ?? 0) > 0 ? null : 'Must be > 0',
+                    (double.tryParse(v ?? '') ?? 0) > 0 ? 'Must be > 0' : null,
               ),
             ),
           ]),
@@ -199,7 +222,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               child: TextFormField(
                 controller: _stopLoss,
                 decoration: const InputDecoration(
-                    labelText: 'Stop loss', border: OutlineInputBorder()),
+                    labelText: 'Stop loss', prefixText: '₹ '),
                 keyboardType: TextInputType.number,
               ),
             ),
@@ -208,44 +231,154 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               child: TextFormField(
                 controller: _takeProfit,
                 decoration: const InputDecoration(
-                    labelText: 'Target', border: OutlineInputBorder()),
+                    labelText: 'Target', prefixText: '₹ '),
                 keyboardType: TextInputType.number,
               ),
             ),
           ]),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _confidence,
-            decoration: const InputDecoration(
-                labelText: 'AI confidence (0-1)', border: OutlineInputBorder()),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: TC.surfaceHi,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('AI confidence',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    Text('${_confidence.round()}%',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: TC.gain, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+                Slider(
+                  value: _confidence,
+                  min: 0,
+                  max: 100,
+                  divisions: 20,
+                  label: '${_confidence.round()}%',
+                  onChanged: (v) => setState(() => _confidence = v),
+                ),
+                Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 13, color: TC.warn),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'An assessment, not a probability of success.',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: TC.warn),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _evaluating ? null : _evaluate,
-            icon: _evaluating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.shield_outlined),
-            label: Text(_evaluating ? 'Checking risk…' : 'Run Risk Engine'),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: _evaluating ? null : _evaluate,
+              icon: _evaluating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.shield_outlined),
+              label: Text(_evaluating ? 'Checking risk…' : 'Run Risk Engine'),
+            ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
-          ],
-          if (_proposal != null && _verdict != null) ...[
-            const SizedBox(height: 16),
-            ProposalCard(
-              proposal: _proposal!,
-              verdict: _verdict!,
-              onApprove: _executing ? () {} : _approve,
-              onReject: _reject,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: TC.loss.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(_error!,
+                  style: const TextStyle(color: TC.loss, fontSize: 13)),
             ),
           ],
+          if (_proposal != null && _verdict != null)
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              child: ProposalCard(
+                key: ValueKey(_proposal),
+                proposal: _proposal!,
+                verdict: _verdict!,
+                onApprove: _executing ? () {} : _approve,
+                onReject: _reject,
+              ),
+            ),
         ],
       ),
     );
   }
 }
+
+/// Idea → Risk → Approval → Filled progress header.
+class _Pipeline extends StatelessWidget {
+  const _Pipeline({required this.step});
+
+  final int step;
+
+  static const _items = [
+    (Icons.lightbulb_outline, 'Idea'),
+    (Icons.shield_outlined, 'Risk check'),
+    (Icons.fact_check_outlined, 'Approval'),
+    (Icons.bolt_outlined, 'Filled'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < _items.length; i++) ...[
+          if (i > 0)
+            Expanded(
+              child: Container(
+                height: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                color: i <= step
+                    ? TC.gain.withValues(alpha: 0.5)
+                    : TC.outline,
+              ),
+            ),
+          Tooltip(
+            message: _items[i].$2,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: i <= step
+                    ? TC.gain.withValues(alpha: i == step ? 0.22 : 0.12)
+                    : TC.surfaceHi,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: i <= step
+                      ? TC.gain.withValues(alpha: 0.5)
+                      : TC.outline,
+                ),
+              ),
+              child: Icon(
+                _items[i].$1,
+                size: 16,
+                color: i <= step ? TC.gain : TC.onBgDim,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+

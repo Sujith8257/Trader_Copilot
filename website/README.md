@@ -1,35 +1,30 @@
-# Website (planned — Next.js)
+# Website — Trader Copilot
 
-Marketing site + future web dashboard for Trader Copilot.
+**Status: live.** A polished, single-file static marketing site: `index.html`.
 
-Planned sitemap:
-
-```
-Home
-├── Product
-├── How it works        (local-first AI, risk engine, approval flow)
-├── AI Models           (Model Hub + registry)
-├── Paper Trading
-├── Backtesting
-├── Supported Brokers
-├── Pricing
-├── Documentation
-└── Download Android App
-
-Web dashboard (later)
-├── Portfolio
-├── Performance
-├── Trading Journal
-├── Strategies
-├── Backtests
-└── Model Management
-```
-
-To scaffold once decided:
+Open it directly in a browser, or serve it:
 
 ```bash
-npx create-next-app@latest . --typescript --tailwind --app
+cd website
+python -m http.server 8080
+# → http://localhost:8080
 ```
 
-Tech: Next.js, TypeScript, Tailwind CSS. The site never receives the user's
-LLM conversations — it is marketing + account services + sync only.
+## What's on it
+
+- Sticky glass nav with mobile menu
+- Hero: tagline, CTAs, stats, and a CSS phone mockup showing a live-looking
+  Risk-Engine proposal card
+- How it works — the 4-step trust pipeline (Analyze → Risk → Approve → Paper fill)
+- Features grid — Model Hub, Market Intelligence, Backtesting, Risk Engine,
+  AI Journal, Offline mode
+- The trust boundary — "No hallucination can become an order" with the
+  deterministic flow diagram
+- Principles — the 5 product commitments
+- Download CTA + footer
+- Dark fintech theme matching the Flutter app (#0B1220 / emerald #34D399),
+  scroll-reveal animations, fully responsive
+
+No build step, no dependencies. A Next.js migration (per the original plan)
+remains possible later; static was chosen for zero-dependency reliability.
+

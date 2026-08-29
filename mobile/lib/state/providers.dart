@@ -36,3 +36,15 @@ final journalProvider =
     NotifierProvider<JournalNotifier, List<ExecutedTrade>>(
         JournalNotifier.new);
 
+/// Selected tab of the shell (0 Portfolio, 1 Copilot, 2 Journal).
+/// A provider so empty-state CTAs can navigate (e.g. "Open Copilot").
+class TabIndexNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void set(int i) => state = i;
+}
+
+final tabIndexProvider =
+    NotifierProvider<TabIndexNotifier, int>(TabIndexNotifier.new);
+

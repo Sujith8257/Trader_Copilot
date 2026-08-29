@@ -49,6 +49,7 @@ class AccountState {
     required this.mode,
     required this.cash,
     required this.equity,
+    this.dayStart,
     required this.positions,
   });
 
@@ -56,13 +57,19 @@ class AccountState {
   final AccountMode mode;
   final double cash;
   final double equity;
+  final double? dayStart;
   final Map<String, Position> positions;
+
+  /// Sum of open-position market values (exposure).
+  double get grossExposure =>
+      positions.values.fold(0.0, (s, p) => s + p.marketValue);
 
   factory AccountState.fromJson(Map<String, dynamic> j) => AccountState(
         accountId: j['account_id'] as String,
         mode: AccountModeX.fromWire(j['mode'] as String? ?? 'PAPER'),
         cash: (j['cash'] as num).toDouble(),
         equity: (j['equity'] as num).toDouble(),
+        dayStart: (j['day_start_equity'] as num?)?.toDouble(),
         positions: {
           for (final e in (j['positions'] as Map<String, dynamic>).entries)
             e.key: Position.fromJson(e.key, e.value),

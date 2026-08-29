@@ -31,12 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app = FastAPI(
-    title="Trader Copilot API",
-    version="0.1.0",
-    description="Deterministic trading core: risk engine + paper broker.",
-)
-
 # -- Session state (in-memory for Phase 1; persistence arrives in Phase 2) ---- #
 engine = RiskEngine(RiskConfig())
 paper = PaperBroker(account_id="paper-primary", initial_cash=1_000_000.0)
@@ -74,6 +68,7 @@ def account() -> dict:
         "mode": acct.mode.value if isinstance(acct.mode, AccountMode) else acct.mode,
         "cash": acct.cash,
         "equity": acct.equity,
+        "day_start_equity": acct.day_start_equity,
         "positions": {
             s: {"qty": p.quantity, "avg": p.avg_price, "last": p.current_price}
             for s, p in acct.positions.items()

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:trader_copilot/core/api_client.dart';
+import 'package:trader_copilot/core/format.dart';
 import 'package:trader_copilot/core/models.dart';
 
 void main() {
@@ -117,6 +118,24 @@ void main() {
         takeProfit: 2550,
       );
       expect(p.riskReward, closeTo(2.0, 0.01));
+    });
+  });
+
+  group('formatINR (Indian rupee grouping)', () {
+    test('groups lakhs and crores the Indian way', () {
+      expect(formatINR(0), '₹0');
+      expect(formatINR(500), '₹500');
+      expect(formatINR(2450), '₹2,450');
+      expect(formatINR(975500), '₹9,75,500');
+      expect(formatINR(1000000), '₹10,00,000');
+      expect(formatINR(12345678), '₹1,23,45,678');
+    });
+
+    test('handles decimals, negatives and signs', () {
+      expect(formatINR(2450.5, decimals: 2), '₹2,450.50');
+      expect(formatINR(-1200), '-₹1,200');
+      expect(formatSignedINR(500), '+₹500');
+      expect(formatSignedINR(-500), '-₹500');
     });
   });
 }
