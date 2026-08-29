@@ -36,6 +36,36 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
           'paper_broker': 'HEALTHY',
         });
       }
+      if (request.url.path == '/agent/chat') {
+        return _ok({
+          'brain': 'local',
+          'reply': 'Top 2 opportunities right now:\n'
+              '- TATAMOTORS - 1,020 - UP - price above key EMAs\n'
+              '- INFY - 1,560 - UP - MACD bullish crossover',
+          'steps': [
+            {'tool': 'scan_market', 'detail': 'Scoring 8 symbols on trend, RSI and MACD...'},
+            {'tool': 'indicators', 'detail': 'TATAMOTORS: 1,020 - RSI 61 - trend UP - score 1.95'},
+          ],
+          'proposal': null,
+          'verdict': null,
+          'opportunities': [
+            {
+              'symbol': 'TATAMOTORS',
+              'last': 1020.0,
+              'change_pct': 1.2,
+              'rsi': 61.0,
+              'trend': 'UP',
+              'score': 1.95,
+              'reasons': ['price above key EMAs', 'healthy momentum (RSI 61)'],
+              'stop': 980.0,
+              'target': 1080.0,
+            },
+          ],
+        });
+      }
+      if (request.url.path == '/config/kill') {
+        return _ok({'trading_enabled': jsonDecode(request.body)['enabled']});
+      }
       return _ok({});
     }),
   );
@@ -117,5 +147,26 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Propose a trade'), findsOneWidget);
+  });
+
+  testWidgets('agent chat runs a visible tool trace on a suggestion',
+      (tester) async {
+    await _pumpHome(tester);
+
+    await tester.tap(find.text('Agent'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Tap the "Scan the market" suggestion chip → agent reply with trace.
+    await tester.tap(find.text('Scan the market'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // The newest message is at the bottom of the chat — nudge the list up.
+    await tester.drag(find.byType(ListView).first, const Offset(0, -200));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('scan_market'), findsOneWidget);
+    expect(find.textContaining('Top 2 opportunities'), findsOneWidget);
+    expect(find.textContaining('TATAMOTORS'), findsWidgets);
   });
 }

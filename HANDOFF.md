@@ -163,22 +163,45 @@ A Next.js migration remains possible later; static was chosen for reliability.
 
 ## 8. ACTIVE TASK
 
-**"Complete the project on your own by improving UI/UX. I need 95+ score for
-UI/UX in both web and app. Do not push to GitHub until I say so."**
+**"Enhance more, add more agentic AI, make it a hackathon winner with 95+
+features score, auto-continue. Still no GitHub push."**
 
-Done so far (this task): backend CORS bug fix + `day_start_equity` exposed;
-full design system (`TC`), Indian ₹ formatting, shared widgets (skeletons,
-empty states, allocation bar, P&L chips), rebuilt dashboard (hero card +
-allocation + position tiles), copilot (pipeline header, side selector,
-confidence slider), journal (stats + tiles), proposal card (verdict banner,
-tinted violation/warning rows), adaptive shell (NavigationBar ↔ Rail,
-mode-switch dialog), static marketing website, tests updated.
+Delivered (agentic round):
+- `backend/app/core/indicators.py` — SMA/EMA/RSI(Wilder)/MACD/Bollinger/ATR +
+  `snapshot()` (incl. ATR-based stop 2x / target 3x) — indicators OUTSIDE the LLM
+- `backend/app/core/market.py` — seeded `MarketSim` (8 NIFTY symbols x 120 OHLC
+  bars, deterministic) so the whole agentic demo runs offline
+- `backend/app/core/agent.py` — `AgentEngine` observe-think-act loop with a
+  visible `AgentStep` trace; tools: `scan_market`, `indicators`,
+  `get_account`, `propose_trade` (draft + Risk-Engine check). Pluggable brain:
+  `local` deterministic keyword router (default) or `llm` when
+  `OPENAI_API_KEY` is set. `TradingProfile` = explicit AI memory (risk level,
+  max position) that sizes every draft
+- New API: `GET /market/overview`, `GET /market/indicators/{symbol}`,
+  `POST /agent/chat` (reply + steps + optional draft + verdict),
+  `POST /agent/scan`, `POST /config/kill` (global kill switch),
+  `POST /profile` — backend tests now **54 passing**
+- Mobile: new **Agent chat tab** (4 tabs: Portfolio/Agent/Copilot/Journal)
+  with user/agent bubbles, tool-trace chips, inline `ProposalCard` approval
+  wired to paper execution, suggestion chips; kill-switch toggle inside the
+  mode dialog; `AgentReply/AgentStep/Opportunity` models + `agentChat`,
+  `agentScan`, `setKillSwitch` API. Mobile tests now **15 passing**;
+  `flutter analyze` clean
+- README rewritten with a hackathon feature table; `website/` unchanged
+  (95+ UI/UX from the previous round)
 
-Remaining ideas if score must go higher: equity history chart once the backend
-tracks it, onboarding tour, more micro-animations, i18n, Android build polish.
+Gotchas learned: never put non-latin1 chars (ellipsis, rupee sign) into
+`http.Response` mocks without a charset header — latin1 decode breaks
+MockClient silently and the agent appears to fail; mock bodies in tests now
+use plain ASCII.
 
-Roadmap after UI/UX: local LLM (llama.cpp FFI), market indicators in Dart,
-SQLite/Postgres persistence, backtesting, broker packs, model registry.
+Next ideas if continuing: equity history chart + sparkline (backend must track
+history), onboarding tour, WebSocket streaming for chat, per-symbol radar card
+on the dashboard from `/market/overview`, SQLite persistence of journal +
+profile, Android SDK 36 upgrade, llama.cpp FFI local brain.
+
+Roadmap after that: real market data provider, backtesting engine, broker
+packs, model registry/hub.
 
 ## 9. Conventions
 

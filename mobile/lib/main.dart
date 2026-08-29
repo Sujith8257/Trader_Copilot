@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/models.dart';
 import 'state/providers.dart';
 import 'ui/screens/dashboard_screen.dart';
+import 'ui/screens/agent_screen.dart';
 import 'ui/screens/copilot_screen.dart';
 import 'ui/screens/journal_screen.dart';
 import 'ui/theme.dart';
@@ -34,6 +35,7 @@ class _Dest {
 
 const _dests = [
   _Dest(Icons.account_balance_outlined, Icons.account_balance, 'Portfolio'),
+  _Dest(Icons.smart_toy_outlined, Icons.smart_toy, 'Agent'),
   _Dest(Icons.psychology_outlined, Icons.psychology, 'Copilot'),
   _Dest(Icons.menu_book_outlined, Icons.menu_book, 'Journal'),
 ];
@@ -44,7 +46,12 @@ class HomeShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(tabIndexProvider);
-    final pages = const [DashboardScreen(), CopilotScreen(), JournalScreen()];
+    final pages = const [
+      DashboardScreen(),
+      AgentScreen(),
+      CopilotScreen(),
+      JournalScreen(),
+    ];
 
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 900;
@@ -173,42 +180,58 @@ class ModeToggle extends ConsumerWidget {
 
   void _showModeSheet(BuildContext context, WidgetRef ref) {
     final mode = ref.read(tradingModeProvider);
+    bool tradingEnabled = true;
     showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Trading mode'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.science_outlined, color: TC.gain),
-              title: const Text('Paper'),
-              subtitle: const Text('₹10,00,000 virtual cash, real prices'),
-              trailing: mode == AccountMode.paper
-                  ? const Icon(Icons.check, color: TC.gain)
-                  : null,
-              onTap: () {
-                ref.read(tradingModeProvider.notifier).set(AccountMode.paper);
-                Navigator.of(context).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.lock_outline, color: TC.warn),
-              title: const Text('Live'),
-              subtitle: const Text('Requires a broker pack — locked'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showLockedDialog(context);
-              },
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Trading mode'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.science_outlined, color: TC.gain),
+                title: const Text('Paper'),
+                subtitle: const Text('₹10,00,000 virtual cash, real prices'),
+                trailing: mode == AccountMode.paper
+                    ? const Icon(Icons.check, color: TC.gain)
+                    : null,
+                onTap: () {
+                  ref.read(tradingModeProvider.notifier).set(AccountMode.paper);
+                  Navigator.of(context).pop();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.lock_outline, color: TC.warn),
+                title: const Text('Live'),
+                subtitle: const Text('Requires a broker pack — locked'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showLockedDialog(context);
+                },
+              ),
+              const Divider(),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Trading enabled'),
+                subtitle: const Text(
+                    'Kill switch — off blocks EVERY proposal, AI or manual'),
+                value: tradingEnabled,
+                activeThumbColor: TC.gain,
+                onChanged: (v) {
+                  setState(() => tradingEnabled = v);
+                  ref.read(apiClientProvider).setKillSwitch(v);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-        ],
       ),
     );
   }

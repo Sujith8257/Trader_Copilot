@@ -167,3 +167,105 @@ class OrderResult {
         filledPrice: (j['filled_price'] as num?)?.toDouble(),
       );
 }
+
+// ---------------------------------------------------------------------------
+// Agentic Copilot models — the chat agent returns a visible tool trace plus,
+// at most, a proposal DRAFT (never an execution).
+// ---------------------------------------------------------------------------
+
+class AgentStep {
+  AgentStep({required this.tool, required this.detail});
+
+  final String tool;
+  final String detail;
+
+  factory AgentStep.fromJson(Map<String, dynamic> j) => AgentStep(
+        tool: j['tool'] as String,
+        detail: j['detail'] as String,
+      );
+}
+
+class Opportunity {
+  Opportunity({
+    required this.symbol,
+    required this.last,
+    required this.changePct,
+    required this.rsi,
+    required this.trend,
+    required this.score,
+    required this.reasons,
+    required this.stop,
+    required this.target,
+  });
+
+  final String symbol;
+  final double last;
+  final double changePct;
+  final double? rsi;
+  final String trend;
+  final double score;
+  final List<String> reasons;
+  final double stop;
+  final double target;
+
+  factory Opportunity.fromJson(Map<String, dynamic> j) => Opportunity(
+        symbol: j['symbol'] as String,
+        last: (j['last'] as num).toDouble(),
+        changePct: (j['change_pct'] as num).toDouble(),
+        rsi: (j['rsi'] as num?)?.toDouble(),
+        trend: j['trend'] as String,
+        score: (j['score'] as num).toDouble(),
+        reasons: (j['reasons'] as List? ?? []).cast<String>(),
+        stop: (j['stop'] as num).toDouble(),
+        target: (j['target'] as num).toDouble(),
+      );
+}
+
+class AgentReply {
+  AgentReply({
+    required this.brain,
+    required this.reply,
+    required this.steps,
+    this.proposal,
+    this.verdict,
+    this.opportunities = const [],
+  });
+
+  final String brain; // "local" | "llm"
+  final String reply;
+  final List<AgentStep> steps;
+  final TradeProposal? proposal;
+  final RiskVerdict? verdict;
+  final List<Opportunity> opportunities;
+
+  bool get hasDraft => proposal != null && verdict != null;
+
+  factory AgentReply.fromJson(Map<String, dynamic> j) {
+    final p = j['proposal'] as Map<String, dynamic>?;
+    final v = j['verdict'] as Map<String, dynamic>?;
+    return AgentReply(
+      brain: (j['brain'] as String?) ?? 'local',
+      reply: (j['reply'] as String?) ?? '',
+      steps: (j['steps'] as List? ?? [])
+          .map((s) => AgentStep.fromJson(s as Map<String, dynamic>))
+          .toList(),
+      proposal: p == null
+          ? null
+          : TradeProposal(
+              symbol: p['symbol'] as String,
+              side: SideX.fromWire(p['side'] as String? ?? 'BUY'),
+              quantity: (p['quantity'] as num).toDouble(),
+              entryPrice: (p['entry_price'] as num?)?.toDouble(),
+              stopLoss: (p['stop_loss'] as num?)?.toDouble(),
+              takeProfit: (p['take_profit'] as num?)?.toDouble(),
+              rationale: (p['rationale'] as String?) ?? '',
+              confidence: (p['confidence'] as num?)?.toDouble(),
+              source: 'ai',
+            ),
+      verdict: v == null ? null : RiskVerdict.fromJson(v),
+      opportunities: (j['opportunities'] as List? ?? [])
+          .map((o) => Opportunity.fromJson(o as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}

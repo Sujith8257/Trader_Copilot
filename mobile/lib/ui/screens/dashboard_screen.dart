@@ -47,7 +47,7 @@ class DashboardScreen extends ConsumerWidget {
                     'Ask your Copilot for a trade idea — the Risk Engine checks '
                     'every proposal before you decide anything.',
                 ctaLabel: 'Open Copilot',
-                onCta: () => ref.read(tabIndexProvider.notifier).set(1),
+                onCta: () => ref.read(tabIndexProvider.notifier).set(2),
               )
             else
               ...account.positions.values.map(_PositionTile.new),

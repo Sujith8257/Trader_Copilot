@@ -13,7 +13,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .core.agent import AgentEngine, AgentResult, TradingProfile
 from .core.brokers.paper import PaperBroker
+from .core.indicators import snapshot
+from .core.market import MarketSim
 from .core.models import AccountMode, Order, OrderType, RiskConfig, Side, TradeProposal
 from .core.risk_engine import RiskEngine
 
@@ -34,6 +37,9 @@ app.add_middleware(
 # -- Session state (in-memory for Phase 1; persistence arrives in Phase 2) ---- #
 engine = RiskEngine(RiskConfig())
 paper = PaperBroker(account_id="paper-primary", initial_cash=1_000_000.0)
+market = MarketSim()
+profile = TradingProfile()
+agent = AgentEngine(market, engine, paper, profile)
 
 
 class ProposalIn(BaseModel):
@@ -117,3 +123,79 @@ def place_paper_order(symbol: str, side: Side, quantity: float, market_price: fl
         "status": result.status.value,
         "filled_price": result.filled_price,
     }
+
+
+# -- Agentic Copilot + Market Intelligence ----------------------------------- #
+
+class ChatIn(BaseModel):
+    message: str
+
+
+class ScanIn(BaseModel):
+    top_n: int = Field(default=3, ge=1, le=8)
+
+
+class KillIn(BaseModel):
+    enabled: bool
+
+
+class ProfileIn(BaseModel):
+    risk_level: Optional[str] = None
+    max_position: Optional[float] = None
+
+
+@app.get("/market/overview")
+def market_overview() -> dict:
+    """Compact indicator read-out for the whole universe (the AI Radar)."""
+    rows = []
+    for sym in market.symbols():
+        s = snapshot(market.bars(sym))
+        rows.append({"symbol": sym, "last": s["last"],
+                     "change_pct": s["change_pct"], "rsi": s["rsi"],
+                     "trend": s["trend"]})
+    return {"rows": rows}
+
+
+@app.get("/market/indicators/{symbol}")
+def market_indicators(symbol: str) -> dict:
+    return {"symbol": symbol.upper(), **snapshot(market.bars(symbol))}
+
+
+@app.post("/agent/chat")
+def agent_chat(body: ChatIn) -> dict:
+    """Agentic endpoint: the copilot reasons over tools (scan, indicators,
+    account, propose+risk-check) and returns a visible trace plus — at most —
+    a proposal DRAFT. Nothing executes here."""
+    r = agent.handle(body.message)
+    return {
+        "brain": agent.brain,
+        "reply": r.reply,
+        "steps": [s.as_dict() for s in r.steps],
+        "proposal": r.proposal,
+        "verdict": r.verdict,
+        "opportunities": r.opportunities,
+    }
+
+
+@app.post("/agent/scan")
+def agent_scan(body: ScanIn) -> dict:
+    r = AgentResult()
+    agent._tool_scan(r, body.top_n)  # reuse the same scoring tool directly
+    return {"opportunities": r.opportunities}
+
+
+@app.post("/config/kill")
+def kill_switch(body: KillIn) -> dict:
+    """Global kill switch: disabled = every proposal is blocked, AI or manual."""
+    engine.config.enabled = body.enabled
+    return {"trading_enabled": engine.config.enabled}
+
+
+@app.post("/profile")
+def update_profile(body: ProfileIn) -> dict:
+    """Explicit AI memory — the user owns these limits."""
+    if body.risk_level in ("low", "moderate", "aggressive"):
+        profile.risk_level = body.risk_level
+    if body.max_position is not None and body.max_position > 0:
+        profile.max_position = body.max_position
+    return {"risk_level": profile.risk_level, "max_position": profile.max_position}

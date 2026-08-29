@@ -138,4 +138,93 @@ void main() {
       expect(formatSignedINR(-500), '-₹500');
     });
   });
+
+  group('AgentReply parsing (agentic copilot)', () {
+    test('parses reply, tool trace and opportunities', () async {
+      final api = ApiClient(
+        client: MockClient((request) async {
+          expect(request.url.path, '/agent/chat');
+          return http.Response(
+            jsonEncode({
+              'brain': 'local',
+              'reply': 'Top 1 opportunities right now.',
+              'steps': [
+                {'tool': 'scan_market', 'detail': 'Scoring 8 symbols...'},
+                {'tool': 'indicators', 'detail': 'TATAMOTORS: RSI 61'},
+              ],
+              'proposal': null,
+              'verdict': null,
+              'opportunities': [
+                {
+                  'symbol': 'TATAMOTORS',
+                  'last': 1020.0,
+                  'change_pct': 1.2,
+                  'rsi': 61.0,
+                  'trend': 'UP',
+                  'score': 1.95,
+                  'reasons': ['price above key EMAs'],
+                  'stop': 980.0,
+                  'target': 1080.0,
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final reply = await api.agentChat('scan the market');
+      expect(reply.brain, 'local');
+      expect(reply.steps, hasLength(2));
+      expect(reply.steps[0].tool, 'scan_market');
+      expect(reply.hasDraft, false);
+      expect(reply.opportunities, hasLength(1));
+      expect(reply.opportunities.first.symbol, 'TATAMOTORS');
+      expect(reply.opportunities.first.stop < reply.opportunities.first.last,
+          isTrue);
+    });
+
+    test('parses a proposal draft with its verdict', () async {
+      final api = ApiClient(
+        client: MockClient((request) async => http.Response(
+              jsonEncode({
+                'brain': 'local',
+                'reply': 'Draft ready.',
+                'steps': [],
+                'proposal': {
+                  'symbol': 'INFY',
+                  'side': 'BUY',
+                  'quantity': 4,
+                  'entry_price': 1520.0,
+                  'stop_loss': 1480.0,
+                  'take_profit': 1580.0,
+                  'rationale': 'UP trend.',
+                  'confidence': 0.72,
+                },
+                'verdict': {'allowed': true, 'violations': [], 'warnings': []},
+                'opportunities': [],
+              }),
+              200,
+            )),
+      );
+
+      final reply = await api.agentChat('buy INFY');
+      expect(reply.hasDraft, true);
+      expect(reply.proposal!.symbol, 'INFY');
+      expect(reply.proposal!.side, Side.buy);
+      expect(reply.verdict!.allowed, true);
+    });
+
+    test('kill switch posts enabled flag', () async {
+      var sent = <String, dynamic>{};
+      final api = ApiClient(
+        client: MockClient((request) async {
+          sent = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode({'trading_enabled': false}), 200);
+        }),
+      );
+      await api.setKillSwitch(false);
+      expect(sent['enabled'], false);
+    });
+  });
 }

@@ -25,7 +25,7 @@ class JournalScreen extends ConsumerWidget {
             'Approved paper trades land here — proposal, approval, fill, and '
             'later post-trade analysis. Try the Copilot to place your first.',
         ctaLabel: 'Open Copilot',
-        onCta: () => ref.read(tabIndexProvider.notifier).set(1),
+        onCta: () => ref.read(tabIndexProvider.notifier).set(2),
       );
     }
 
