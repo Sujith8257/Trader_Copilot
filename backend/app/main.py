@@ -12,14 +12,14 @@ import json
 import os
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .core.agent import AgentEngine, AgentResult, TradingProfile
 from .core.brokers.paper import PaperBroker
 from .core.indicators import snapshot
-from .core.market import MarketSim, SlicedMarket
+from .core.market import CRYPTO_UNIVERSE, MarketSim, SlicedMarket
 from .core.models import (
         AccountMode,
     Order,
@@ -53,6 +53,18 @@ market = MarketSim()
 profile = TradingProfile()
 agent = AgentEngine(market, engine, paper, profile)
 
+# Crypto paper account: a 24/7 market riding the SAME BrokerClient interface.
+crypto_market = MarketSim(universe=CRYPTO_UNIVERSE, seed=11)
+crypto_paper = PaperBroker(account_id="crypto-paper", initial_cash=1_000_000.0)
+crypto_agent = AgentEngine(crypto_market, engine, crypto_paper, profile)
+
+
+def _resolve(market_name: str) -> tuple:
+    """Return the (broker, agent, market) for a market name: stocks | crypto."""
+    if market_name == "crypto":
+        return crypto_paper, crypto_agent, crypto_market
+    return paper, agent, market
+
 
 class ProposalIn(BaseModel):
     symbol: str
@@ -64,6 +76,7 @@ class ProposalIn(BaseModel):
     rationale: str = ""
     confidence: Optional[float] = Field(default=None, ge=0, le=1)
     source: str = "ai"
+    market: str = "stocks"
     market_price: float = Field(gt=0)
     market_open: bool = True
 
@@ -79,10 +92,11 @@ def health() -> dict:
 
 
 @app.get("/account")
-def account() -> dict:
-    acct = paper.get_account()
+def account(market: str = Query("stocks")) -> dict:
+    acct = _resolve(market)[0].get_account()
     return {
         "account_id": acct.account_id,
+        "market": market,
         "mode": acct.mode.value if isinstance(acct.mode, AccountMode) else acct.mode,
         "cash": acct.cash,
         "equity": acct.equity,
@@ -95,11 +109,12 @@ def account() -> dict:
 
 
 @app.get("/account/history")
-def account_history() -> dict:
+def account_history(market: str = Query("stocks")) -> dict:
     """Equity curve (one point per fill + starting point) for charts."""
-    points = paper.get_history()
+    broker = _resolve(market)[0]
+    points = broker.get_history()
     # Append the live equity so the chart reflects mark-to-market now.
-    acct = paper.get_account()
+    acct = broker.get_account()
     points = points + [{"t": utcnow().isoformat(), "equity": acct.equity}]
     return {"points": points}
 
@@ -107,7 +122,10 @@ def account_history() -> dict:
 @app.post("/proposals/evaluate")
 def evaluate_proposal(proposal: ProposalIn) -> dict:
     """Run a trade proposal (from the on-device AI or the user) through the
-    deterministic Risk Engine. Nothing is executed here — evaluation only."""
+    deterministic Risk Engine. Nothing is executed here — evaluation only.
+    Crypto proposals are always market-open (crypto trades 24/7)."""
+    broker = _resolve(proposal.market)[0]
+    market_open = True if proposal.market == "crypto" else proposal.market_open
     tp = TradeProposal(
         symbol=proposal.symbol,
         side=proposal.side,
@@ -119,7 +137,7 @@ def evaluate_proposal(proposal: ProposalIn) -> dict:
         confidence=proposal.confidence,
         source=proposal.source,
     )
-    verdict = engine.evaluate(tp, paper.get_account(), proposal.market_price, proposal.market_open)
+    verdict = engine.evaluate(tp, broker.get_account(), proposal.market_price, market_open)
     return {
         "allowed": verdict.allowed,
         "violations": verdict.violations,
@@ -129,6 +147,7 @@ def evaluate_proposal(proposal: ProposalIn) -> dict:
 
 @app.post("/orders/paper")
 def place_paper_order(symbol: str, side: Side, quantity: float, market_price: float,
+                      market: str = Query("stocks"),
                       order_type: OrderType = OrderType.MARKET,
                       limit_price: Optional[float] = None) -> dict:
     """Place an order on the paper broker (simulated execution only)."""
@@ -139,7 +158,7 @@ def place_paper_order(symbol: str, side: Side, quantity: float, market_price: fl
         order_type=order_type,
         limit_price=limit_price,
     )
-    result = paper.place_order(order, market_price)
+    result = _resolve(market)[0].place_order(order, market_price)
     return {
         "order_id": result.order_id,
         "status": result.status.value,
@@ -151,10 +170,12 @@ def place_paper_order(symbol: str, side: Side, quantity: float, market_price: fl
 
 class ChatIn(BaseModel):
     message: str
+    market: str = "stocks"
 
 
 class ScanIn(BaseModel):
     top_n: int = Field(default=3, ge=1, le=8)
+    market: str = "stocks"
 
 
 class KillIn(BaseModel):
@@ -167,11 +188,12 @@ class ProfileIn(BaseModel):
 
 
 @app.get("/market/overview")
-def market_overview() -> dict:
+def market_overview(market: str = Query("stocks")) -> dict:
     """Compact indicator read-out for the whole universe (the AI Radar)."""
+    sim = _resolve(market)[2]
     rows = []
-    for sym in market.symbols():
-        s = snapshot(market.bars(sym))
+    for sym in sim.symbols():
+        s = snapshot(sim.bars(sym))
         rows.append({"symbol": sym, "last": s["last"],
                      "change_pct": s["change_pct"], "rsi": s["rsi"],
                      "trend": s["trend"]})
@@ -179,11 +201,12 @@ def market_overview() -> dict:
 
 
 @app.get("/market/indicators/{symbol}")
-def market_indicators(symbol: str) -> dict:
+def market_indicators(symbol: str, market: str = Query("stocks")) -> dict:
+    sim = _resolve(market)[2]
     return {
         "symbol": symbol.upper(),
-        **snapshot(market.bars(symbol)),
-        "closes": market.prices(symbol),  # full series for client charts
+        **snapshot(sim.bars(symbol)),
+        "closes": sim.prices(symbol),  # full series for client charts
     }
 
 
@@ -192,9 +215,10 @@ def agent_chat(body: ChatIn) -> dict:
     """Agentic endpoint: the copilot reasons over tools (scan, indicators,
     account, propose+risk-check) and returns a visible trace plus — at most —
     a proposal DRAFT. Nothing executes here."""
-    r = agent.handle(body.message)
+    ag = _resolve(body.market)[1]
+    r = ag.handle(body.message)
     return {
-        "brain": agent.brain,
+        "brain": ag.brain,
         "reply": r.reply,
         "steps": [s.as_dict() for s in r.steps],
         "proposal": r.proposal,
@@ -206,7 +230,7 @@ def agent_chat(body: ChatIn) -> dict:
 @app.post("/agent/scan")
 def agent_scan(body: ScanIn) -> dict:
     r = AgentResult()
-    agent._tool_scan(r, body.top_n)  # reuse the same scoring tool directly
+    _resolve(body.market)[1]._tool_scan(r, body.top_n)  # same scoring tool
     return {"opportunities": r.opportunities}
 
 
@@ -252,7 +276,8 @@ async def ws_agent(ws: WebSocket) -> None:
             text = (msg.get("message") or "").strip()
             if not text:
                 continue
-            r = agent.handle(text)
+            ag = _resolve(msg.get("market", "stocks"))[1]
+            r = ag.handle(text)
             for st in r.steps:
                 await ws.send_json({"type": "step", "step": st.as_dict()})
                 await asyncio.sleep(0.05)  # "thinking in progress" feel
@@ -263,7 +288,7 @@ async def ws_agent(ws: WebSocket) -> None:
             await ws.send_json({"type": "reply", "reply": r.reply})
             await ws.send_json({
                 "type": "done",
-                "brain": agent.brain,
+                "brain": ag.brain,
                 "reply": r.reply,
                 "steps": [s.as_dict() for s in r.steps],
                 "proposal": r.proposal,

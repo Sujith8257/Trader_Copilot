@@ -7,7 +7,7 @@ stays identical.
 from __future__ import annotations
 
 import random
-from typing import Sequence
+from typing import Optional, Sequence
 
 UNIVERSE: dict[str, float] = {
     "RELIANCE": 2450.0,
@@ -21,13 +21,31 @@ UNIVERSE: dict[str, float] = {
 }
 
 
+CRYPTO_UNIVERSE: dict[str, float] = {
+    # 24/7 market: crypto trades on weekends, unlike NSE. Prices are INR.
+    "BTC": 5800000.0,
+    "ETH": 310000.0,
+    "SOL": 14500.0,
+    "BNB": 52000.0,
+    "XRP": 58.0,
+    "ADA": 42.0,
+    "DOGE": 12.5,
+    "LINK": 1750.0,
+}
+
+
+def market_universe(market: str) -> dict[str, float]:
+    """Symbol to base-price universe for a market name (stocks | crypto)."""
+    return CRYPTO_UNIVERSE if market == "crypto" else UNIVERSE
+
+
 class MarketSim:
-    def __init__(self, days: int = 120, seed: int = 7) -> None:
+    def __init__(self, days: int = 120, seed: int = 7, universe: Optional[dict[str, float]] = None) -> None:
         self._bars: dict[str, list[dict]] = {}
         self._days = days
         self._seed = seed
         rng = random.Random(seed)
-        for sym, base in UNIVERSE.items():
+        for sym, base in (universe if universe is not None else UNIVERSE).items():
             # per-symbol regime: some trending up, some down, different vols
             drift = rng.uniform(-0.0035, 0.0035)
             vol = rng.uniform(0.012, 0.028)

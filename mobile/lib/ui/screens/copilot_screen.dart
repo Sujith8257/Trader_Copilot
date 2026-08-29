@@ -80,6 +80,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
       final verdict = await ref.read(apiClientProvider).evaluateProposal(
             proposal,
             marketPrice: double.parse(_marketPrice.text),
+            market: ref.read(marketProvider),
           );
       setState(() {
         _proposal = proposal;
@@ -111,6 +112,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
             side: proposal.side,
             quantity: proposal.quantity,
             marketPrice: double.parse(_marketPrice.text),
+            market: ref.read(marketProvider),
           );
       if (!mounted) return;
       ref.read(journalProvider.notifier).add(

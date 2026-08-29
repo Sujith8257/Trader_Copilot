@@ -72,7 +72,9 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     });
     _scrollDown();
     try {
-      final reply = await ref.read(apiClientProvider).agentChat(msg);
+      final reply = await ref
+          .read(apiClientProvider)
+          .agentChat(msg, market: ref.read(marketProvider));
       setState(() => _messages.add(_ChatMessage.agent(reply)));
     } catch (e) {
       setState(() => _messages.add(_ChatMessage.agent(AgentReply(
@@ -107,6 +109,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
             side: p.side,
             quantity: p.quantity,
             marketPrice: p.entryPrice ?? 0,
+            market: ref.read(marketProvider),
           );
       if (!mounted) return;
       ref.read(journalProvider.notifier).add(ExecutedTrade(

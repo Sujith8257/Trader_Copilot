@@ -16,7 +16,16 @@ enum AccountMode { paper, live }
 extension AccountModeX on AccountMode {
   String get wire => name.toUpperCase();
   static AccountMode fromWire(String v) =>
-      v.toUpperCase() == 'LIVE' ? AccountMode.live : AccountMode.paper;
+      v.toUpperCase() == "LIVE" ? AccountMode.live : AccountMode.paper;
+}
+
+/// Which market the app is looking at. NSE follows IST market hours;
+/// crypto paper-trades 24/7 - even on weekends.
+enum Market { stocks, crypto }
+
+extension MarketX on Market {
+  String get wire => name;
+  String get label => this == Market.crypto ? "Crypto" : "Stocks";
 }
 
 class Position {

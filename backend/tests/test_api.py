@@ -100,3 +100,35 @@ def test_websocket_streams_agent_trace():
     assert last["type"] == "done"
     assert last["steps"]  # a real trace was streamed
     assert last["opportunities"]
+# -- Crypto paper trading (24/7 market) --------------------------------------- #
+
+
+def test_crypto_account_and_overview():
+    r = client.get("/account?market=crypto")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["account_id"] == "crypto-paper"
+    assert body["market"] == "crypto"
+    assert body["cash"] == 1_000_000.0
+    ov = client.get("/market/overview?market=crypto")
+    syms = [row["symbol"] for row in ov.json()["rows"]]
+    assert "BTC" in syms and "ETH" in syms
+
+
+def test_crypto_agent_scans_only_crypto():
+    r = client.post("/agent/chat", json={"message": "scan the market", "market": "crypto"})
+    assert r.status_code == 200
+    syms = {o["symbol"] for o in r.json()["opportunities"]}
+    assert syms <= {"BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "LINK"}
+    # the stocks account is untouched by crypto activity
+    assert client.get("/account").json()["account_id"] == "paper-primary"
+
+
+def test_crypto_proposal_is_always_market_open():
+    ok = client.post("/proposals/evaluate", json={
+        "symbol": "BTC", "side": "BUY", "quantity": 0.001,
+        "stop_loss": 5500000.0, "take_profit": 6200000.0,
+        "market_price": 5800000.0, "market": "crypto", "market_open": False,
+    })
+    assert ok.status_code == 200
+    assert ok.json()["allowed"] is True

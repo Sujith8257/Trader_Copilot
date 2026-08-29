@@ -1,7 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api_client.dart';
 import '../core/models.dart';
+
+/// Whether the user has already seen the first-launch onboarding. Async because
+/// it is read from SharedPreferences on first boot; overridable in tests.
+final startupPrefsProvider = FutureProvider<bool>((ref) async {
+  final sp = await SharedPreferences.getInstance();
+  return sp.getBool('seen_onboarding') ?? false;
+});
 
 /// Backend API client (overridable in tests).
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
@@ -19,9 +27,22 @@ final tradingModeProvider =
     NotifierProvider<TradingModeNotifier, AccountMode>(
         TradingModeNotifier.new);
 
+/// Selected market: NSE stocks or the 24/7 crypto paper market.
+class MarketSelectionNotifier extends Notifier<Market> {
+  @override
+  Market build() => Market.stocks;
+
+  void set(Market m) => state = m;
+}
+
+final marketProvider =
+    NotifierProvider<MarketSelectionNotifier, Market>(
+        MarketSelectionNotifier.new);
+
 /// Account snapshot from the backend paper broker.
 final accountProvider = FutureProvider.autoDispose<AccountState>((ref) async {
-  return ref.watch(apiClientProvider).fetchAccount();
+  final market = ref.watch(marketProvider);
+  return ref.watch(apiClientProvider).fetchAccount(market: market);
 });
 
 /// Session journal of executed trades (persisted to SQLite in a later phase).
@@ -51,12 +72,14 @@ final tabIndexProvider =
 /// Market overview rows for the AI Radar card on the dashboard.
 final marketOverviewProvider =
     FutureProvider.autoDispose<List<MarketRow>>((ref) async {
-  return ref.watch(apiClientProvider).marketOverview();
+  final market = ref.watch(marketProvider);
+  return ref.watch(apiClientProvider).marketOverview(market: market);
 });
 
 /// Equity curve of the paper account (for the dashboard sparkline).
 final historyProvider =
     FutureProvider.autoDispose<List<EquityPoint>>((ref) async {
-  return ref.watch(apiClientProvider).fetchAccountHistory();
+  final market = ref.watch(marketProvider);
+  return ref.watch(apiClientProvider).fetchAccountHistory(market: market);
 });
 

@@ -7,6 +7,7 @@ import 'ui/screens/dashboard_screen.dart';
 import 'ui/screens/agent_screen.dart';
 import 'ui/screens/copilot_screen.dart';
 import 'ui/screens/journal_screen.dart';
+import 'ui/screens/onboarding_screen.dart';
 import 'ui/theme.dart';
 
 void main() => runApp(const ProviderScope(child: TraderCopilotApp()));
@@ -21,7 +22,36 @@ class TraderCopilotApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: TC.dark(),
       themeMode: ThemeMode.dark,
-      home: const HomeShell(),
+      home: const BootGate(),
+    );
+  }
+}
+
+/// First-launch gate. Shows OnboardingScreen until the user taps
+/// "Get Started" (which sets seen_onboarding=true and refreshes the provider),
+/// then hands off to HomeShell for every launch thereafter.
+class BootGate extends ConsumerWidget {
+  const BootGate({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seen = ref.watch(startupPrefsProvider);
+    return seen.when(
+      loading: () => const _Splash(),
+      error: (_, _) => const HomeShell(),
+      data: (seen) => seen ? const HomeShell() : const OnboardingScreen(),
+    );
+  }
+}
+
+class _Splash extends StatelessWidget {
+  const _Splash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: TC.bg,
+      body: Center(child: CircularProgressIndicator(color: TC.gain)),
     );
   }
 }

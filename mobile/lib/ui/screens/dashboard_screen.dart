@@ -29,6 +29,7 @@ class DashboardScreen extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
+            const _MarketSwitcher(),
             _HeroCard(account),
             const SizedBox(height: 16),
             _AllocationCard(account),
@@ -55,6 +56,34 @@ class DashboardScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Stocks / Crypto switcher. Switching the market refetches the account,
+/// equity history and AI Radar (every provider watches marketProvider).
+class _MarketSwitcher extends ConsumerWidget {
+  const _MarketSwitcher();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final market = ref.watch(marketProvider);
+    return SegmentedButton<Market>(
+      segments: const [
+        ButtonSegment(
+          value: Market.stocks,
+          label: Text("Stocks"),
+          icon: Icon(Icons.show_chart, size: 16),
+        ),
+        ButtonSegment(
+          value: Market.crypto,
+          label: Text("Crypto"),
+          icon: Icon(Icons.currency_bitcoin, size: 16),
+        ),
+      ],
+      selected: {market},
+      showSelectedIcon: false,
+      onSelectionChanged: (s) => ref.read(marketProvider.notifier).set(s.first),
     );
   }
 }

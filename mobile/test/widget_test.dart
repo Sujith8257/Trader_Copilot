@@ -23,10 +23,11 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
           'cash': 975500.0,
           'equity': 1000500.0,
           'day_start_equity': 1000000.0,
-          'positions': positions ??
-            {
-              'RELIANCE': {'qty': 10, 'avg': 2450.0, 'last': 2500.0},
-            },
+          'positions':
+              positions ??
+              {
+                'RELIANCE': {'qty': 10, 'avg': 2450.0, 'last': 2500.0},
+              },
         });
       }
       if (request.url.path == '/health') {
@@ -39,12 +40,19 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
       if (request.url.path == '/agent/chat') {
         return _ok({
           'brain': 'local',
-          'reply': 'Top 2 opportunities right now:\n'
+          'reply':
+              'Top 2 opportunities right now:\n'
               '- TATAMOTORS - 1,020 - UP - price above key EMAs\n'
               '- INFY - 1,560 - UP - MACD bullish crossover',
           'steps': [
-            {'tool': 'scan_market', 'detail': 'Scoring 8 symbols on trend, RSI and MACD...'},
-            {'tool': 'indicators', 'detail': 'TATAMOTORS: 1,020 - RSI 61 - trend UP - score 1.95'},
+            {
+              'tool': 'scan_market',
+              'detail': 'Scoring 8 symbols on trend, RSI and MACD...',
+            },
+            {
+              'tool': 'indicators',
+              'detail': 'TATAMOTORS: 1,020 - RSI 61 - trend UP - score 1.95',
+            },
           ],
           'proposal': null,
           'verdict': null,
@@ -69,8 +77,20 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
       if (request.url.path == '/market/overview') {
         return _ok({
           'rows': [
-            {'symbol': 'TATAMOTORS', 'last': 1020.0, 'change_pct': 1.2, 'rsi': 61.0, 'trend': 'UP'},
-            {'symbol': 'INFY', 'last': 1560.0, 'change_pct': -0.4, 'rsi': 48.0, 'trend': 'DOWN'},
+            {
+              'symbol': 'TATAMOTORS',
+              'last': 1020.0,
+              'change_pct': 1.2,
+              'rsi': 61.0,
+              'trend': 'UP',
+            },
+            {
+              'symbol': 'INFY',
+              'last': 1560.0,
+              'change_pct': -0.4,
+              'rsi': 48.0,
+              'trend': 'DOWN',
+            },
           ],
         });
       }
@@ -87,36 +107,42 @@ ApiClient _fakeApi({Map<String, dynamic>? positions}) {
   );
 }
 
+/// Pumps the app with the account provider stubbed AND onboarding already
+/// dismissed, so tests land on the Portfolio dashboard directly.
 Widget _app({Map<String, dynamic>? positions}) => ProviderScope(
-      overrides: [apiClientProvider.overrideWithValue(_fakeApi(positions: positions))],
-      child: const TraderCopilotApp(),
-    );
+  overrides: [
+    apiClientProvider.overrideWithValue(_fakeApi(positions: positions)),
+    startupPrefsProvider.overrideWithValue(const AsyncData(true)),
+  ],
+  child: const TraderCopilotApp(),
+);
 
 /// Pumps the app and waits for the account future. Uses explicit pumps (not
 /// pumpAndSettle) because the skeleton loader animates indefinitely.
 Future<void> _pumpHome(WidgetTester tester) async {
   await tester.pumpWidget(_app());
-  await tester.pump(); // start frame (loading skeleton)
-  await tester.pump(const Duration(milliseconds: 400)); // future resolves
+  await tester.pump(); // start
+  await tester.pump(const Duration(milliseconds: 400)); // account future
+  await tester.pump(const Duration(milliseconds: 200)); // sparkline refresh
 }
 
 void main() {
-  testWidgets('dashboard renders account, stats and positions',
-      (tester) async {
+  testWidgets('dashboard renders account, stats and positions', (tester) async {
     await _pumpHome(tester);
 
-    expect(find.text('Paper Trading Account'), findsOneWidget);
-    // equity = cash 975,500 + 10 @ 2,500 = 10,00,500 (Indian grouping)
+    expect(find.text('Trader Copilot'), findsOneWidget);
+    // net worth (cash 975500 + RELIANCE position value 25000)
     expect(find.text('₹10,00,500'), findsOneWidget);
+    expect(find.text('Portfolio'), findsOneWidget);
+    expect(find.text('RELIANCE'), findsWidgets);
     // cash appears in the stat tile AND the allocation legend
     expect(find.text('₹9,75,500'), findsNWidgets(2));
     // exposure value appears in its stat tile, position tile and/or legend
     // (some may be below the fold in the test viewport)
     expect(find.text('₹25,000'), findsAtLeastNWidgets(2));
-    expect(find.text('RELIANCE'), findsWidgets);
     // day-delta chip lives on the visible hero card
     expect(find.text('+₹500 today'), findsOneWidget);
-    // the position P&L chip is in the position tile — scroll down to it
+    // the position P&L chip is in the position tile - scroll down to it
     await tester.scrollUntilVisible(
       find.text('+₹500'),
       150,
@@ -124,20 +150,25 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('+₹500'), findsOneWidget);
-    // AI Radar strip from /market/overview
+    // AI Radar strip from /market/overview (below the fold - scroll to it)
+    await tester.scrollUntilVisible(
+      find.text('AI Radar'),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('AI Radar'), findsOneWidget);
     expect(find.textContaining('TATAMOTORS'), findsOneWidget);
   });
 
-  testWidgets('live mode is gated — selecting Live shows the locked dialog',
-      (tester) async {
+  testWidgets('live mode is gated - selecting Live shows the locked dialog', (
+    tester,
+  ) async {
     await _pumpHome(tester);
 
-    // Open the mode switcher chip in the app bar.
     await tester.tap(find.text('Paper'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    // Pick Live → locked dialog explains the gate; mode stays paper.
     await tester.tap(find.text('Live'));
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -163,7 +194,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    // The empty state sits below the hero + allocation cards — scroll to it.
     await tester.scrollUntilVisible(
       find.text('Open Copilot'),
       200,
@@ -176,24 +206,58 @@ void main() {
     expect(find.text('Propose a trade'), findsOneWidget);
   });
 
-  testWidgets('agent chat runs a visible tool trace on a suggestion',
-      (tester) async {
+  testWidgets('agent chat runs a visible tool trace on a suggestion', (
+    tester,
+  ) async {
     await _pumpHome(tester);
 
     await tester.tap(find.text('Agent'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    // Tap the "Scan the market" suggestion chip → agent reply with trace.
     await tester.tap(find.text('Scan the market'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
 
-    // The newest message is at the bottom of the chat — nudge the list up.
+    // The newest message is at the bottom of the chat - nudge the list up.
     await tester.drag(find.byType(ListView).first, const Offset(0, -200));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('scan_market'), findsOneWidget);
     expect(find.textContaining('Top 2 opportunities'), findsOneWidget);
     expect(find.textContaining('TATAMOTORS'), findsWidgets);
+  });
+
+  testWidgets('first launch shows onboarding before the dashboard', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(_fakeApi()),
+          startupPrefsProvider.overrideWithValue(const AsyncData(false)),
+        ],
+        child: const TraderCopilotApp(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Page 1 of the onboarding tour.
+    expect(find.text('Agentic Copilot'), findsOneWidget);
+    expect(find.text('Next'), findsOneWidget);
+    expect(find.text('Get Started'), findsNothing);
+
+    // Page 2: Risk Engine first.
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Risk Engine first'), findsOneWidget);
+
+    // Page 3: Local-first. The CTA becomes Get Started.
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Local-first'), findsOneWidget);
+    expect(find.text('Get Started'), findsOneWidget);
   });
 }

@@ -8,8 +8,16 @@ import 'models.dart';
 ///
 /// The AI never talks to this layer directly: proposals go IN for risk
 /// evaluation, and only the user's approval sends anything to a broker.
+/// Backend base URL. Override for physical devices with:
+/// flutter run --dart-define=API_BASE_URL=http://192.168.x.x:8000
+/// (localhost only resolves on desktop/web/emulator).
+const String apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://localhost:8000',
+);
+
 class ApiClient {
-  ApiClient({http.Client? client, this.baseUrl = 'http://localhost:8000'})
+  ApiClient({http.Client? client, this.baseUrl = apiBaseUrl})
       : _client = client ?? http.Client();
 
   final http.Client _client;
@@ -23,8 +31,9 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  Future<AccountState> fetchAccount() async {
-    final r = await _client.get(_uri('/account'));
+  Future<AccountState> fetchAccount({Market market = Market.stocks}) async {
+    final r = await _client
+        .get(_uri('/account').replace(queryParameters: {'market': market.wire}));
     _ensureOk(r);
     return AccountState.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
   }
@@ -35,6 +44,7 @@ class ApiClient {
     TradeProposal p, {
     required double marketPrice,
     bool marketOpen = true,
+    Market market = Market.stocks,
   }) async {
     final r = await _client.post(
       _uri('/proposals/evaluate'),
@@ -49,6 +59,7 @@ class ApiClient {
         'rationale': p.rationale,
         'confidence': p.confidence,
         'source': p.source,
+        'market': market.wire,
         'market_price': marketPrice,
         'market_open': marketOpen,
       }),
@@ -63,12 +74,14 @@ class ApiClient {
     required Side side,
     required double quantity,
     required double marketPrice,
+    Market market = Market.stocks,
   }) async {
     final r = await _client.post(_uri('/orders/paper').replace(queryParameters: {
       'symbol': symbol,
       'side': side.wire,
       'quantity': '$quantity',
       'market_price': '$marketPrice',
+      'market': market.wire,
     }));
     _ensureOk(r);
     return OrderResult.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
@@ -78,11 +91,12 @@ class ApiClient {
 
   /// Sends a chat message to the agent. Returns the reply, the visible tool
   /// trace, and — at most — a proposal DRAFT with its Risk Engine verdict.
-  Future<AgentReply> agentChat(String message) async {
+  Future<AgentReply> agentChat(String message,
+      {Market market = Market.stocks}) async {
     final r = await _client.post(
       _uri('/agent/chat'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'message': message}),
+      body: jsonEncode({'message': message, 'market': market.wire}),
     );
     _ensureOk(r);
     return AgentReply.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
@@ -113,8 +127,9 @@ class ApiClient {
   }
 
   /// Compact market overview for the AI Radar card.
-  Future<List<MarketRow>> marketOverview() async {
-    final r = await _client.get(_uri('/market/overview'));
+  Future<List<MarketRow>> marketOverview({Market market = Market.stocks}) async {
+    final r = await _client
+        .get(_uri('/market/overview').replace(queryParameters: {'market': market.wire}));
     _ensureOk(r);
     final body = jsonDecode(r.body) as Map<String, dynamic>;
     return (body['rows'] as List? ?? [])
@@ -123,8 +138,9 @@ class ApiClient {
   }
 
   /// Equity curve of the paper account (per fill + live point).
-  Future<List<EquityPoint>> fetchAccountHistory() async {
-    final r = await _client.get(_uri('/account/history'));
+  Future<List<EquityPoint>> fetchAccountHistory({Market market = Market.stocks}) async {
+    final r = await _client
+        .get(_uri('/account/history').replace(queryParameters: {'market': market.wire}));
     _ensureOk(r);
     final body = jsonDecode(r.body) as Map<String, dynamic>;
     return (body['points'] as List? ?? [])
