@@ -478,6 +478,25 @@ class TradingService {
             mode: mode,
             reason: reason,
           );
+      // Exchange minimums: CoinSwitch rejects orders below quote.min
+      // (e.g. ₹150 for BTC/INR) — check it and say so clearly.
+      try {
+        final info = await market.client.tradeInfo(p.symbol);
+        final notional = p.quantity * p.marketPrice;
+        if (info.minQuote != null && notional < info.minQuote!) {
+          return fail('₹${notional.toStringAsFixed(0)} is below the '
+              'CoinSwitch minimum of ₹${info.minQuote!.toStringAsFixed(0)} '
+              'for ${p.symbol}/INR. Add at least '
+              '₹${(info.minQuote! - notional).toStringAsFixed(0)} more.');
+        }
+        if (info.maxQuote != null && notional > info.maxQuote!) {
+          return fail('Order exceeds the CoinSwitch maximum of '
+              '₹${info.maxQuote!.toStringAsFixed(0)} for ${p.symbol}/INR — '
+              'split it into smaller orders.');
+        }
+      } on CoinSwitchException catch (e) {
+        return fail('Could not read CoinSwitch trade limits: ${e.message}');
+      }
       Map<String, dynamic> resp;
       try {
         resp = await market.client.placeLimitOrder(
