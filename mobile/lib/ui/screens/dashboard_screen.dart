@@ -82,8 +82,8 @@ class _LiveSourceChip extends ConsumerWidget {
         ),
         label: Text(
           error == null
-              ? 'LIVE Coinbase · crypto 24/7'
-              : 'Reconnecting to Coinbase…',
+              ? 'LIVE CoinSwitch · crypto 24/7'
+              : 'Reconnecting to CoinSwitch…',
           style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
         ),
         visualDensity: VisualDensity.compact,
@@ -366,13 +366,13 @@ class _ErrorView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Cannot reach Coinbase',
+              'Cannot reach CoinSwitch',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
             Text(
               'Check your internet connection — every price and chart in this '
-              'app comes from the LIVE Coinbase API.',
+              'app comes from the LIVE CoinSwitch API.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),

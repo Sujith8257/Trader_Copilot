@@ -34,13 +34,10 @@ class TradingModeNotifier extends Notifier<AccountMode> {
 
   void set(AccountMode mode) {
     state = mode;
-    // Toggling modes re-renders EVERYTHING mode-scoped: the account
-    // (paper cash vs real Coinbase equity), positions, the journal and
-    // the copilot decision history.
-    ref.invalidate(accountProvider);
-    ref.invalidate(historyProvider);
-    ref.invalidate(journalProvider);
-    ref.invalidate(decisionsProvider);
+    // Mode-scoped providers (accountProvider, journal, decisions) filter
+    // or watch this provider directly — Riverpod rebuilds them
+    // automatically. Invalidating here would create a circular
+    // dependency (accountProvider watches tradingModeProvider).
   }
 }
 
