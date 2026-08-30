@@ -149,6 +149,8 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
               ExecutedTrade(
                 symbol: proposal.symbol,
                 side: proposal.side,
+                mode: mode.name,
+                source: 'manual',
                 quantity: amount / (exec.fillPrice ?? proposal.marketPrice),
                 filledPrice: exec.fillPrice ?? proposal.marketPrice,
                 at: DateTime.now(),
@@ -619,6 +621,8 @@ class _PendingQueueState extends ConsumerState<_PendingQueue> {
               ExecutedTrade(
                 symbol: p.symbol,
                 side: p.side,
+                mode: mode.name,
+                source: 'autopilot',
                 quantity: amount / (exec.fillPrice ?? p.marketPrice),
                 filledPrice: exec.fillPrice ?? p.marketPrice,
                 at: DateTime.now(),

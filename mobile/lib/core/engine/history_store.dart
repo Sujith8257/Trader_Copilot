@@ -33,7 +33,11 @@ class HistoryStore {
             side: (e['side'] as String? ?? 'buy') == 'sell' ? Side.sell : Side.buy,
             quantity: (e['quantity'] as num).toDouble(),
             filledPrice: (e['filled_price'] as num).toDouble(),
-            at: DateTime.tryParse(e['at'] as String? ?? '') ?? DateTime.now(),
+            at:
+                DateTime.tryParse(e['at'] as String? ?? '') ??
+                    DateTime.now(),
+            mode: (e['mode'] as String?) ?? 'paper',
+            source: (e['source'] as String?) ?? 'manual',
           ),
       ];
     } catch (_) {
@@ -53,6 +57,8 @@ class HistoryStore {
         'quantity': t.quantity,
         'filled_price': t.filledPrice,
         'at': t.at.toIso8601String(),
+        'mode': t.mode,
+        'source': t.source,
       },
     ];
     // keep the newest 500 fills

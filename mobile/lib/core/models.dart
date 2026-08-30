@@ -129,6 +129,8 @@ class ExecutedTrade {
     required this.quantity,
     required this.filledPrice,
     required this.at,
+    this.mode = 'paper',
+    this.source = 'manual',
   });
 
   final String symbol;
@@ -136,6 +138,14 @@ class ExecutedTrade {
   final double quantity;
   final double filledPrice;
   final DateTime at;
+
+  /// Where the fill happened: 'paper' | 'live'. Real provenance, not
+  /// decoration - the journal must say which account the fill hit.
+  final String mode;
+
+  /// What initiated it: 'manual' | 'agent' | 'agent-idea' | 'autopilot'
+  /// | 'exit'.
+  final String source;
 
   double get notional => quantity * filledPrice;
 }

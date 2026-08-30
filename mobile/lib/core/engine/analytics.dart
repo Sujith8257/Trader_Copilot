@@ -3,6 +3,7 @@
 /// journal. Pure functions — no network, no fabrication.
 library;
 
+import '../format.dart';
 import '../models.dart';
 
 class PortfolioStats {
@@ -51,7 +52,9 @@ List<double> realizedPnlSeries(List<ExecutedTrade> trades) {
     } else {
       final qty = openQty[t.symbol] ?? 0;
       final cost = openCost[t.symbol] ?? 0;
-      if (qty <= 0) continue; // sell without a tracked lot (e.g. live import)
+      if (qty <= 0 || t.quantity <= 0) {
+        continue; // no tracked lot, or a phantom zero-qty fill
+      }
       final avg = cost / qty;
       final closed = qty < t.quantity ? qty : t.quantity;
       pnl.add((t.filledPrice - avg) * closed);
@@ -60,6 +63,34 @@ List<double> realizedPnlSeries(List<ExecutedTrade> trades) {
     }
   }
   return pnl;
+}
+
+/// Realized PnL for EACH journal entry, aligned by index: each SELL is
+/// closed against the running average BUY cost (same math as the broker).
+/// null where no PnL can be honestly computed (buys, or sells without a
+/// tracked lot) - the UI shows a dash instead of inventing a number.
+List<double?> realizedPnlByTrade(List<ExecutedTrade> trades) {
+  final openQty = <String, double>{};
+  final openCost = <String, double>{};
+  final out = List<double?>.filled(trades.length, null);
+  for (var i = 0; i < trades.length; i++) {
+    final t = trades[i];
+    if (t.side == Side.buy) {
+      openQty[t.symbol] = (openQty[t.symbol] ?? 0) + t.quantity;
+      openCost[t.symbol] =
+          (openCost[t.symbol] ?? 0) + t.quantity * t.filledPrice;
+    } else {
+      final qty = openQty[t.symbol] ?? 0;
+      final cost = openCost[t.symbol] ?? 0;
+      if (qty <= 0 || t.quantity <= 0) continue;
+      final avg = cost / qty;
+      final closed = qty < t.quantity ? qty : t.quantity;
+      out[i] = (t.filledPrice - avg) * closed;
+      openQty[t.symbol] = qty - closed;
+      openCost[t.symbol] = openQty[t.symbol]! * avg;
+    }
+  }
+  return out;
 }
 
 PortfolioStats computeStats({
@@ -102,18 +133,24 @@ PortfolioStats computeStats({
 
 /// CSV export of the journal (shared to clipboard / files by the UI).
 String tradesCsv(List<ExecutedTrade> trades) {
+  final pnl = realizedPnlByTrade(trades);
   final buf = StringBuffer(
-    'time,symbol,side,quantity,filled_price_inr,notional_inr\n',
+    'time,symbol,side,quantity,filled_price_inr,notional_inr,'
+    'realized_pnl_inr,mode,source\n',
   );
-  for (final t in trades) {
+  for (var i = 0; i < trades.length; i++) {
+    final t = trades[i];
     buf.writeln(
       [
         t.at.toIso8601String(),
         t.symbol,
         t.side.name.toUpperCase(),
-        t.quantity,
+        formatQty(t.quantity),
         t.filledPrice.toStringAsFixed(2),
         t.notional.toStringAsFixed(2),
+        pnl[i] == null ? '' : pnl[i]!.toStringAsFixed(2),
+        t.mode,
+        t.source,
       ].join(','),
     );
   }

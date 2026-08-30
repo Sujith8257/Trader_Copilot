@@ -302,6 +302,10 @@ class _PositionScreenState extends ConsumerState<PositionScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final svc = ref.read(tradingServiceProvider);
+      // Capture the REAL position size BEFORE the close. Journaling 0 here
+      // (the old bug) wrote a phantom fill that poisoned the analytics.
+      final soldQty =
+          svc.paper.account.positions[widget.symbol]?.quantity ?? 0;
       final exec = await svc.closePosition(widget.symbol, mode);
       if (!exec.executed) {
         messenger.showSnackBar(SnackBar(
@@ -313,9 +317,11 @@ class _PositionScreenState extends ConsumerState<PositionScreen> {
       ref.read(journalProvider.notifier).add(ExecutedTrade(
             symbol: widget.symbol,
             side: Side.sell,
-            quantity: 0, // remainder is 0 — the whole position was sold
+            quantity: soldQty,
             filledPrice: fill,
             at: DateTime.now(),
+            mode: mode.name,
+            source: 'exit',
           ));
       ref.invalidate(accountProvider);
       ref.invalidate(historyProvider);

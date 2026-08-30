@@ -33,6 +33,7 @@ class JournalScreen extends ConsumerWidget {
 
     final buys = trades.where((t) => t.side == Side.buy).length;
     final notional = trades.fold<double>(0, (s, t) => s + t.notional);
+    final pnlByTrade = realizedPnlByTrade(trades);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -106,7 +107,8 @@ class JournalScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         SectionHeader('History'),
-        ...trades.reversed.map(_TradeTile.new),
+        for (var i = trades.length - 1; i >= 0; i--)
+          _TradeTile(trades[i], realizedPnl: pnlByTrade[i]),
       ],
     );
   }
@@ -174,9 +176,21 @@ String _fmtTime(DateTime d) =>
     '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
 class _TradeTile extends StatelessWidget {
-  const _TradeTile(this.t);
+  const _TradeTile(this.t, {required this.realizedPnl});
 
   final ExecutedTrade t;
+
+  /// Realized PnL of THIS fill (avg entry vs this sell), or null when it
+  /// cannot be honestly computed (buys, sells without a tracked lot).
+  final double? realizedPnl;
+
+  String get _sourceLabel => switch (t.source) {
+        'agent-idea' => 'Agent idea',
+        'agent' => 'Agent crew',
+        'autopilot' => 'Autopilot',
+        'exit' => 'Manual exit',
+        _ => 'Manual',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -208,7 +222,8 @@ class _TradeTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${isBuy ? 'BOUGHT' : 'SOLD'} ${t.quantity} ${t.symbol}',
+                      '${isBuy ? 'BOUGHT' : 'SOLD'} ${formatQty(t.quantity)} '
+                      '${t.symbol}',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 2),
@@ -217,15 +232,73 @@ class _TradeTile extends StatelessWidget {
                       'Notional ${formatINR(t.notional)}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _TagChip(
+                          label: t.mode.toUpperCase(),
+                          color: t.mode == 'live' ? TC.warn : TC.info,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: _TagChip(
+                            label: _sourceLabel,
+                            color: TC.onBgDim,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              Text(
-                _fmtTime(t.at),
-                style: Theme.of(context).textTheme.bodySmall,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _fmtTime(t.at),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (!isBuy && realizedPnl != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      formatSignedINR(realizedPnl!, decimals: 2),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: realizedPnl! >= 0 ? TC.gain : TC.loss,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tiny label chip for journal metadata (mode / source).
+class _TagChip extends StatelessWidget {
+  const _TagChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

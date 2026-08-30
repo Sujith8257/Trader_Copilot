@@ -29,3 +29,14 @@ String formatINR(num v, {int decimals = 0}) {
 /// `+₹500` / `-₹120` — for P&L displays.
 String formatSignedINR(num v, {int decimals = 0}) =>
     '${v >= 0 ? '+' : ''}${formatINR(v, decimals: decimals)}';
+
+/// Coin quantities with no floating-point noise: 0.0034000000000000005
+/// becomes '0.0034' and 2.0 becomes '2'. Up to 8 decimals, zeros trimmed.
+String formatQty(num v) {
+  var s = v.toStringAsFixed(8);
+  if (s.contains('.')) {
+    s = s.replaceAll(RegExp(r'0+$'), '');
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
+  }
+  return s;
+}

@@ -112,6 +112,8 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     ref.read(journalProvider.notifier).add(ExecutedTrade(
           symbol: s.symbol,
           side: Side.buy,
+          mode: mode.name,
+          source: 'agent-idea',
           quantity: chosen / (exec.fillPrice ?? p.marketPrice),
           filledPrice: exec.fillPrice ?? p.marketPrice,
           at: DateTime.now(),
@@ -175,6 +177,8 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
           ExecutedTrade(
             symbol: p.symbol,
             side: p.side,
+            mode: mode.name,
+            source: 'agent',
             quantity: amount / (exec.fillPrice ?? p.marketPrice),
             filledPrice: exec.fillPrice ?? p.marketPrice,
             at: DateTime.now(),
