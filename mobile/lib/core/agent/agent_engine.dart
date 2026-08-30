@@ -310,7 +310,15 @@ class TradingAgent {
       'Scanning ${market.symbols.length} live Coinbase pairs…',
     );
     final scan = await toolScanMarket();
-    final top = scan.take(4).toList();
+    // Goal-aware candidate set: anything the user named in the goal comes
+    // FIRST (so "analyze BTC" always analyzes BTC), then the top scored.
+    final named = scan
+        .where((r) => goal.toUpperCase().contains(r['symbol'] as String))
+        .toList();
+    final top = [
+      ...named,
+      ...scan.where((r) => !named.contains(r)),
+    ].take(6).toList();
     for (final t in top) {
       emit(
         'scanner',
@@ -334,7 +342,7 @@ class TradingAgent {
     // -- Analyst -----------------------------------------------------------
     emit('analyst', 'get_indicators', 'Deep-diving the top candidates…');
     final analyses = <Map<String, dynamic>>[];
-    for (final c in top.take(2)) {
+    for (final c in top.take(3)) {
       final sym = c['symbol'] as String;
       final ind = await toolIndicators(sym);
       analyses.add(ind);
@@ -355,11 +363,17 @@ class TradingAgent {
     final account = toolAccount(broker);
 
     final system = ChatMessage.system(
-      'You are a disciplined crypto trading crew. Respond ONLY with valid JSON, '
-      'no prose. You NEVER execute trades; you only decide. Rules: '
-      'max 2 new positions; never fight the trend blindly; RSI>70 = overbought, '
-      'RSI<30 = oversold; prefer EMA20>EMA50 (UP) for buys; respect the goal; '
-      'if nothing meets the bar, return an empty list — patience is valid.',
+      'You are the strategist of a disciplined crypto trading crew. '
+      'Respond ONLY with valid JSON - no prose, no markdown fences. '
+      'You NEVER execute trades; you only decide. Rules: '
+      '- Max 2 new BUY positions per run. '
+      '- A candidate with UP trend (EMA20>EMA50), RSI between 35 and 68, '
+      'and non-negative momentum IS a valid entry: do not refuse it. '
+      '- RSI>70 = overbought (do not BUY), RSI<30 = oversold (may bounce). '
+      '- SELL only symbols the ACCOUNT already holds. '
+      '- Respect the GOAL above everything. '
+      '- Return WAIT with a one-line reason ONLY when a candidate truly '
+      'fails every rule - never stand down while a qualifying setup exists.',
     );
 
     final decRaw = await llmClient.chat([
@@ -372,9 +386,27 @@ class TradingAgent {
         'Use SELL only for symbols in ACCOUNT positions.',
       ),
     ], brain: brain);
-    final decisions =
+    var decisions =
         (LlmClient.extractJson(decRaw)?['decisions'] as List? ?? [])
             .cast<Map<String, dynamic>>();
+    if (decisions.isEmpty) {
+      // Models sometimes wrap or prose-up the JSON — one corrective retry.
+      emit('strategist', 'retry',
+          'First pass was unusable — re-asking for pure JSON…');
+      final retry = await llmClient.chat([
+        system,
+        ChatMessage.user(
+          'GOAL: $goal\n\nMARKET SCAN: $scanCtx\n\nINDICATORS: '
+          '${jsonEncode(analyses)}\n\nACCOUNT: ${jsonEncode(account)}\n\n'
+          'Decide trades. Respond ONLY with JSON: {"decisions":['
+          '{"symbol":"BTC","side":"BUY"|"SELL"|"WAIT","conviction":0.0-1.0,'
+          '"rationale":"..."}]}. No text outside the JSON.',
+        ),
+      ], brain: brain);
+      decisions =
+          (LlmClient.extractJson(retry)?['decisions'] as List? ?? [])
+              .cast<Map<String, dynamic>>();
+    }
     for (final d in decisions) {
       emit(
         'strategist',
@@ -412,7 +444,13 @@ class TradingAgent {
       }
     }
     if (res.proposals.isEmpty && res.reply.isEmpty) {
-      res.reply = 'The crew decided to stand down — no setup met the bar.';
+      final waits = decisions
+          .where((d) => (d['side'] as String? ?? '').toUpperCase() == 'WAIT')
+          .map((d) => '${d['symbol']}: ${d['rationale']}')
+          .toList();
+      res.reply = waits.isNotEmpty
+          ? 'No trade met the bar this pass — ${waits.take(2).join(' · ')}'
+          : 'The crew decided to stand down — no setup met the bar.';
     }
   }
 
