@@ -142,10 +142,59 @@ class TradingAgent {
   }) async {
     final res = AgentRunResult(goal: goal);
 
-    // Suggestion intent: "suggest me a good position", "I want to invest
-    // ₹5000", "any ideas?" — the crew proactively picks 5-6 cryptos and the
-    // user trades any of them with one tap (amount asked in the UI).
-    if (_wantsSuggestions(goal)) {
+    // INTENT: with an LLM brain, the BRAIN classifies what the user means
+    // (any phrasing works). Keyword heuristics are only the offline
+    // fallback for the rule brain or when the classifier call fails.
+    var intent = _wantsSuggestions(goal)
+        ? 'ideas'
+        : (directTradeAmount(goal) != null ? 'trade' : 'crew');
+    if (brain.isLlm) {
+      try {
+        final raw = await llmClient.chat([
+          const ChatMessage.system(
+            'You classify what a crypto trading app user wants. Respond ONLY '
+            'with valid JSON: {"intent":"trade"|"ideas"|"analyze"|"chat"}. '
+            'Definitions: "trade" = an imperative command to place a market '
+            'order NOW (any phrasing: "trade 300", "put 500 in bitcoin", '
+            '"buy sol with 200", "yolo 100 into doge"). "ideas" = asking '
+            'for suggestions/picks/opportunities without commanding a '
+            'specific trade. "analyze" = asking about the market or a '
+            'specific coin. "chat" = anything else (greetings, account '
+            'questions, chit-chat). No prose outside the JSON.',
+          ),
+          ChatMessage.user('MESSAGE: $goal'),
+        ], brain: brain);
+        final i =
+            ((LlmClient.extractJson(raw) ?? <String, dynamic>{})['intent']
+                    as String? ??
+                '')
+                .toLowerCase()
+                .trim();
+        if (const {'trade', 'ideas', 'analyze', 'chat'}.contains(i)) {
+          intent = i;
+          res.step('system', 'intent', 'Brain classified this as "$i".');
+        }
+      } on LlmException catch (e) {
+        res.step('system', 'fallback',
+            'Intent classification unavailable (${e.message}) — using '
+            'keyword routing.');
+      }
+    }
+
+    if (intent == 'trade') {
+      final amt = _extractAmount(goal) ?? directTradeAmount(goal);
+      if (amt != null) {
+        final r2 = await decideDirectTrade(goal, amt, broker, brain,
+            onStep: onStep);
+        res.suggestedAmount = amt;
+        res.reply = r2.reply;
+        res.brain = r2.brain;
+        res.proposals.addAll(r2.proposals);
+        res.steps.addAll(r2.steps);
+        return res;
+      }
+    }
+    if (intent == 'ideas') {
       res.suggestedAmount = _extractAmount(goal);
       await _runSuggestions(res, brain);
       res.brain = brain.isLlm ? brain.kind.name : 'rule';
