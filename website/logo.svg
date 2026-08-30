@@ -1,0 +1,55 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#1a1a22"/>
+      <stop offset="100%" stop-color="#0b0b0f"/>
+    </radialGradient>
+    <linearGradient id="greenGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#16C784"/>
+      <stop offset="100%" stop-color="#4FE3A8"/>
+    </linearGradient>
+    <linearGradient id="redGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#EA3943"/>
+      <stop offset="100%" stop-color="#FF6B72"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="256" cy="256" r="248" fill="url(#bgGrad)" stroke="#2a2a33" stroke-width="2"/>
+  <line x1="120" y1="352" x2="392" y2="352" stroke="#2e2e38" stroke-width="2"/>
+
+  <g stroke-linecap="round">
+    <line x1="152" y1="296" x2="152" y2="334" stroke="url(#greenGrad)" stroke-width="6"/>
+    <line x1="196" y1="278" x2="196" y2="312" stroke="url(#redGrad)" stroke-width="6"/>
+    <line x1="240" y1="230" x2="240" y2="288" stroke="url(#greenGrad)" stroke-width="6"/>
+    <line x1="284" y1="196" x2="284" y2="240" stroke="url(#greenGrad)" stroke-width="6"/>
+    <line x1="328" y1="204" x2="328" y2="238" stroke="url(#redGrad)" stroke-width="6"/>
+    <line x1="372" y1="150" x2="372" y2="212" stroke="url(#greenGrad)" stroke-width="6"/>
+  </g>
+  <g>
+    <rect x="140" y="304" width="24" height="20" rx="3" fill="url(#greenGrad)"/>
+    <rect x="184" y="284" width="24" height="18" rx="3" fill="url(#redGrad)"/>
+    <rect x="228" y="244" width="24" height="30" rx="3" fill="url(#greenGrad)"/>
+    <rect x="272" y="206" width="24" height="26" rx="3" fill="url(#greenGrad)"/>
+    <rect x="316" y="210" width="24" height="18" rx="3" fill="url(#redGrad)"/>
+    <rect x="360" y="164" width="24" height="34" rx="3" fill="url(#greenGrad)"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <line x1="176" y1="132" x2="256" y2="96" stroke="#E8ECEF" stroke-width="2.5" opacity="0.85"/>
+    <line x1="256" y1="96" x2="352" y2="122" stroke="#E8ECEF" stroke-width="2.5" opacity="0.85"/>
+    <line x1="176" y1="132" x2="352" y2="122" stroke="#E8ECEF" stroke-width="2.5" opacity="0.55"/>
+    <line x1="256" y1="96" x2="256" y2="150" stroke="#E8ECEF" stroke-width="2" opacity="0.45"/>
+    <circle cx="176" cy="132" r="10" fill="#16C784"/>
+    <circle cx="352" cy="122" r="10" fill="#16C784"/>
+    <circle cx="256" cy="96" r="13" fill="#FFFFFF"/>
+  </g>
+
+  <circle cx="256" cy="256" r="228" fill="none" stroke="#4FE3A8" stroke-width="1.5" opacity="0.2"/>
+</svg>
