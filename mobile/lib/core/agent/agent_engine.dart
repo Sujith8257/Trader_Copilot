@@ -165,13 +165,17 @@ class TradingAgent {
         }
         return res;
       } on LlmException catch (e) {
-        res.step(
-          'system',
-          'fallback',
-          'LLM brain unavailable (${e.message}) — using the rule brain.',
-        );
+        // NO silent rule-brain fallback: the user asked for the LLM crew,
+        // so an unreachable brain is an honest error, not a different
+        // trading style.
+        res.step('system', 'error', 'LLM brain unavailable (${e.message}).');
+        res.reply = 'The LLM brain could not be reached (${e.message}) — '
+            'nothing was decided. Check Settings → Brain connection.';
+        res.brain = brain.kind.name;
+        return res;
       }
     }
+    // Only reached when the user actually CHOSE the rule brain in Settings.
     _runRuleBrain(broker, res);
     res.brain = 'rule';
     return res;
@@ -576,19 +580,85 @@ class TradingAgent {
           'and try again.';
       return;
     }
-    // Prefer uptrends, but always fill 5-6 cards so the user has choice.
-    final up = scan.where((r) => r['trend'] == 'UP').toList();
-    final picks = (up.length >= 5 ? up : [
-      ...up,
-      ...scan.where((r) => r['trend'] != 'UP'),
-    ]).take(6).toList();
+    final amt = res.suggestedAmount;
+    final rowsCtx = jsonEncode([
+      for (final r in scan.take(20))
+        {
+          'symbol': r['symbol'],
+          'price_inr': r['last'],
+          'change_24h_pct': r['change_pct'],
+          'rsi': r['rsi'],
+          'trend': r['trend'],
+          'score': r['score'],
+        },
+    ]);
 
-    res.step(
-      'strategist',
-      'thought',
-      'Picked the top ${picks.length} scored products — user picks one, '
-          'the Risk Engine sizes the order from their amount.',
-    );
+    // AGENTIC PICKS: with an LLM brain, the STRATEGIST chooses the 5-6
+    // ideas and writes the reason for each — nothing here is a fixed
+    // formula. The scored shortlist is only the labeled fallback for the
+    // offline rule brain or a failed call.
+    var pickReasons = <String, String>{};
+    var summary = '';
+    var picks = <Map<String, dynamic>>[];
+    if (brain.isLlm) {
+      try {
+        emit2(res, 'strategist', 'llm',
+            'Asking the brain to pick the best ideas from the live scan…');
+        final raw = await llmClient.chat([
+          const ChatMessage.system(
+            'You are the strategist of a crypto trading crew. From the LIVE '
+            'scored candidates pick the 5-6 BEST trade ideas right now. '
+            'Prefer UP trend with RSI 35-68, avoid RSI>70, spread across '
+            'different coins. Respond ONLY with valid JSON: {"picks":'
+            '[{"symbol":"SOL","reason":"one short line why"}],"summary":'
+            '"2 sentences for the user"}. No prose outside the JSON. Never '
+            'promise returns, never invent symbols.',
+          ),
+          ChatMessage.user(
+            'USER ASK: ${res.goal}\n'
+            '${amt != null ? 'USER AMOUNT: ₹${_round2(amt)}\n' : ''}'
+            'LIVE SCORED CANDIDATES: $rowsCtx\n'
+            'Pick 5-6 ideas with a one-line reason each.',
+          ),
+        ], brain: brain);
+        final j = LlmClient.extractJson(raw) ?? <String, dynamic>{};
+        for (final c
+            in (j['picks'] as List? ?? []).cast<Map<String, dynamic>>()) {
+          final sym = (c['symbol'] as String? ?? '').toUpperCase();
+          final rows = scan.where((r) => r['symbol'] == sym).toList();
+          if (rows.isNotEmpty) {
+            picks.add(rows.first);
+            pickReasons[sym] = (c['reason'] as String?) ?? '';
+          }
+        }
+        summary = (j['summary'] as String?) ?? '';
+        if (picks.isNotEmpty) {
+          res.brain = brain.kind.name;
+          emit2(
+            res,
+            'strategist',
+            'thought',
+            summary.isEmpty
+                ? 'Picked ${picks.length} ideas from the live scan.'
+                : summary,
+          );
+        }
+      } on LlmException catch (e) {
+        emit2(res, 'system', 'fallback',
+            'LLM picking unavailable (${e.message}) — using the scored '
+            'shortlist.');
+      }
+    }
+
+    // Fallback (rule brain selected, or the LLM pass produced nothing
+    // valid): the top scored candidates, honestly labeled.
+    if (picks.isEmpty) {
+      final up = scan.where((r) => r['trend'] == 'UP').toList();
+      picks = (up.length >= 5 ? up : [
+        ...up,
+        ...scan.where((r) => r['trend'] != 'UP'),
+      ]).take(6).toList();
+    }
     for (final t in picks) {
       final s = AgentSuggestion(
         symbol: t['symbol'] as String,
@@ -604,67 +674,21 @@ class TradingAgent {
         'idea',
         '${s.symbol}: ₹${_round2(s.price)} · trend ${s.trend} · '
             'RSI ${s.rsi?.toStringAsFixed(0) ?? '-'} · '
-            'score ${s.score.toStringAsFixed(2)}',
+            'score ${s.score.toStringAsFixed(2)}'
+            '${(pickReasons[s.symbol]?.isNotEmpty ?? false) ? ' — ${pickReasons[s.symbol]}' : ''}',
       );
     }
-    final amt = res.suggestedAmount;
-    // AGENTIC narration: when an LLM brain is configured, the strategist
-    // WRITES the reasoning behind these live-scored picks. The template
-    // below is only the offline/rule-brain fallback.
-    final picksCtx = jsonEncode([
-      for (final s in res.suggestions)
-        {
-          'symbol': s.symbol,
-          'price_inr': _round2(s.price),
-          'change_24h_pct': s.changePct,
-          'rsi': s.rsi,
-          'trend': s.trend,
-          'score': _round2(s.score),
-        },
-    ]);
-    if (brain.isLlm) {
-      try {
-        res.step(
-          'strategist',
-          'llm',
-          'Writing the reasoning behind the ${res.suggestions.length} '
-              'live-scored picks…',
-        );
-        final said = (await llmClient.chat([
-          const ChatMessage.system(
-            'You are the strategist of a crypto trading crew. In 2-4 short '
-            'sentences explain what these LIVE scored ideas have in common '
-            'and name one caution. Plain text only - no lists, no markdown, '
-            'no JSON. You never promise returns and you never invent prices.',
-          ),
-          ChatMessage.user(
-            'USER ASK: ${res.goal}\n'
-            '${amt != null ? 'USER AMOUNT: ₹${_round2(amt)}\n' : ''}'
-            'LIVE SCORED IDEAS: $picksCtx\n'
-            'Explain the ideas and how the user should choose between them. '
-            'Mention 1-2 tickers by name.',
-          ),
-        ], brain: brain)).trim();
-        if (said.isNotEmpty) {
-          res.reply = said;
-          return;
-        }
-      } on LlmException catch (e) {
-        res.step(
-          'system',
-          'fallback',
-          'LLM narration unavailable (${e.message}) — using the '
-              'deterministic summary.',
-        );
-      }
-    }
-    res.reply = amt != null
-        ? 'Here are my top ${res.suggestions.length} ideas for your '
-            '₹${_round2(amt)} — tap TRADE on one and I will size the order '
-            'from your amount and run the Risk Engine before executing.'
-        : 'Here are my top ${res.suggestions.length} ideas right now — '
-            'tap TRADE on one, enter how much you want to put in, and the '
-            'Risk Engine will size and check the order.';
+    res.reply = summary.isNotEmpty
+        ? '$summary Tap TRADE on one, enter how much you want to put in, '
+            'and the Risk Engine will size and check the order.'
+        : amt != null
+            ? 'Here are my top ${res.suggestions.length} ideas for your '
+                '₹${_round2(amt)} — tap TRADE on one and I will size the '
+                'order from your amount and run the Risk Engine before '
+                'executing.'
+            : 'Here are my top ${res.suggestions.length} ideas right now — '
+                'tap TRADE on one, enter how much you want to put in, and '
+                'the Risk Engine will size and check the order.';
   }
 
   // ------------------------------------------------------------------ //
@@ -729,16 +753,59 @@ class TradingAgent {
       'candidates',
       'Shortlist: ${pool.take(4).map((r) => r['symbol']).join(', ')}',
     );
-    // Pick the best qualifying setup (UP trend, RSI<70). If the user named
-    // a coin, that coin wins even when its setup is imperfect — it's an
-    // explicit order, not a suggestion.
+    final rowsCtx = jsonEncode([
+      for (final r in pool.take(10))
+        {
+          'symbol': r['symbol'],
+          'price_inr': r['last'],
+          'change_24h_pct': r['change_pct'],
+          'rsi': r['rsi'],
+          'trend': r['trend'],
+          'score': r['score'],
+        },
+    ]);
+
+    // AGENTIC CHOICE: the brain picks the target for the amount. If the
+    // user NAMED a coin, that coin wins outright - it's an explicit order.
     Map<String, dynamic>? pick;
-    for (final t in pool) {
-      final trend = t['trend'] as String? ?? 'DOWN';
-      final r = t['rsi'] as double?;
-      if (trend == 'UP' && (r == null || r < 70)) {
-        pick = t;
-        break;
+    if (named.isNotEmpty) {
+      pick = named.first;
+      emit2(res, 'strategist', 'thought',
+          'You named ${pick['symbol']} — trading that.');
+    } else if (brain.isLlm) {
+      try {
+        emit2(res, 'strategist', 'llm',
+            'Asking the brain to choose the best use of the amount…');
+        final raw = await llmClient.chat([
+          const ChatMessage.system(
+            'You are the strategist of a crypto trading crew. The user '
+            'commanded a market BUY of a fixed amount RIGHT NOW. From the '
+            'LIVE scored candidates choose the ONE best symbol for that '
+            'market buy. Prefer UP trend with RSI 35-68 and positive '
+            'momentum; avoid RSI>70. Respond ONLY with valid JSON: '
+            '{"symbol":"SOL","rationale":"one short line"}. No prose '
+            'outside the JSON.',
+          ),
+          ChatMessage.user(
+            'AMOUNT: ₹${_round2(amount)}\n'
+            'LIVE SCORED CANDIDATES: $rowsCtx\n'
+            'Choose the one best symbol for the market buy.',
+          ),
+        ], brain: brain);
+        final j = LlmClient.extractJson(raw) ?? <String, dynamic>{};
+        final sym = (j['symbol'] as String? ?? '').toUpperCase();
+        final why = (j['rationale'] as String?) ?? '';
+        final rows = scan.where((r) => r['symbol'] == sym).toList();
+        if (rows.isNotEmpty) {
+          pick = rows.first;
+          res.brain = brain.kind.name;
+          emit2(res, 'strategist', 'thought',
+              '$sym chosen — $why');
+        }
+      } on LlmException catch (e) {
+        emit2(res, 'system', 'fallback',
+            'LLM choice unavailable (${e.message}) — using the top scored '
+            'candidate.');
       }
     }
     pick ??= named.isNotEmpty ? named.first : scan.first;
