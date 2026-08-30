@@ -533,17 +533,28 @@ class _AutopilotCard extends ConsumerWidget {
                 children: [
                   Text('Every', style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(width: 8),
-                  for (final m in const [5, 15, 30, 60]) ...[
-                    ChoiceChip(
-                      label: Text(m >= 60 ? '1h' : '$m m'),
-                      selected: ap.intervalMinutes == m,
-                      onSelected: (_) =>
-                          ref.read(autopilotProvider.notifier).setInterval(m),
-                      visualDensity: VisualDensity.compact,
+                  // Scrollable so 4 chips + "Run now" never overflow at 360dp
+                  // (the old fixed Row overflowed by ~38px).
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final m in const [5, 15, 30, 60]) ...[
+                            ChoiceChip(
+                              label: Text(m >= 60 ? '1h' : '$m m'),
+                              selected: ap.intervalMinutes == m,
+                              onSelected: (_) => ref
+                                  .read(autopilotProvider.notifier)
+                                  .setInterval(m),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 6),
-                  ],
-                  const Spacer(),
+                  ),
                   TextButton(
                     onPressed: ap.running
                         ? null

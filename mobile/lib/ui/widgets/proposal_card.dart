@@ -105,9 +105,15 @@ class ProposalCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '${_qty(proposal.quantity)} ${proposal.symbol}',
-                  style: Theme.of(context).textTheme.titleLarge,
+                // Flex + ellipsis: long qty/symbol pairs used to overflow
+                // the narrower agent-chat card width.
+                Expanded(
+                  child: Text(
+                    '${_qty(proposal.quantity)} ${proposal.symbol}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
@@ -246,14 +252,18 @@ class ProposalCard extends StatelessWidget {
             ],
 
             // Actions ----------------------------------------------------------
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            // Wrap (not Row): inside the agent-chat bubble the two buttons
+            // exceed 260px and used to overflow ~19-38px. They now flow to a
+            // second line on narrow widths instead.
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 OutlinedButton(
                   onPressed: onReject,
                   child: const Text('Reject'),
                 ),
-                const SizedBox(width: 12),
                 FilledButton.icon(
                   onPressed: verdict.allowed ? onApprove : null,
                   icon: const Icon(Icons.how_to_reg_outlined, size: 18),
