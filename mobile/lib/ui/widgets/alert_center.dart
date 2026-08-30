@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/engine/alerts.dart';
-import '../../core/engine/coinbase_client.dart';
+import '../../core/engine/coinswitch_client.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 
@@ -196,7 +196,7 @@ class _AlertForm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final syms = symbols.isEmpty ? coinbaseProducts : symbols;
+    final syms = symbols.isEmpty ? fallbackProducts : symbols;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

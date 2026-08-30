@@ -1,11 +1,10 @@
-import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:trader_copilot/core/engine/alerts.dart';
 import 'package:trader_copilot/core/engine/analytics.dart';
-import 'package:trader_copilot/core/engine/coinbase_client.dart';
+import 'package:trader_copilot/core/engine/coinswitch_client.dart';
 import 'package:trader_copilot/core/engine/indicators.dart';
 import 'package:trader_copilot/core/engine/paper_broker.dart';
 import 'package:trader_copilot/core/engine/risk_engine.dart';
@@ -230,19 +229,17 @@ void main() {
     });
   });
 
-  group('coinbase key decoding', () {
-    test('decodes a 64-byte Ed25519 key (seed||public)', () {
-      final raw = List<int>.generate(64, (i) => i);
-      final key = decodePrivateKey(base64Encode(raw));
-      expect(key.isEd25519, isTrue);
-      expect(key.alg, 'EdDSA');
-      expect(key.keyBytes.length, 32);
+    group('coinswitch key decoding', () {
+    test('decodes a 64-hex-char Ed25519 seed', () {
+      final seed = List<int>.generate(32, (i) => i);
+      final hex = seed.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      expect(decodeSeedHex(hex).length, 32);
     });
 
     test('rejects garbage keys', () {
       expect(
-        () => decodePrivateKey(base64Encode([1, 2, 3])),
-        throwsA(isA<CoinbaseException>()),
+        () => decodeSeedHex('abcd'),
+        throwsA(isA<CoinSwitchException>()),
       );
     });
   });

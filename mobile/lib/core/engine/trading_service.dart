@@ -20,7 +20,7 @@ import '../agent/llm_client.dart';
 import '../format.dart';
 import '../models.dart';
 import 'alerts.dart';
-import 'coinbase_client.dart';
+import 'coinswitch_client.dart';
 import 'history_store.dart';
 import 'paper_broker.dart';
 import 'risk_engine.dart';
@@ -67,11 +67,11 @@ class RefreshTick {
 
 class TradingService {
   TradingService({
-    LiveCoinbaseMarket? marketClient,
+    LiveCoinSwitchMarket? marketClient,
     PaperBroker? paperBroker,
     RiskEngine? riskEngine,
   }) {
-    market = marketClient ?? LiveCoinbaseMarket();
+    market = marketClient ?? LiveCoinSwitchMarket();
     risk = riskEngine ?? RiskEngine();
     agent = TradingAgent(market: market, risk: risk);
     if (paperBroker != null) {
@@ -83,7 +83,7 @@ class TradingService {
   static TradingService? _instance;
   static TradingService get instance => _instance ??= TradingService();
 
-  late LiveCoinbaseMarket market;
+  late LiveCoinSwitchMarket market;
   late RiskEngine risk;
   late TradingAgent agent;
   late AlertEngine alerts = AlertEngine();
@@ -205,7 +205,7 @@ class TradingService {
     );
     market.client
       ..apiKey = _settings.coinbaseKey
-      ..privateKey = _settings.coinbaseSecret;
+      ..secretKey = _settings.coinbaseSecret;
     _loaded = true;
   }
 
@@ -223,7 +223,7 @@ class TradingService {
     await sp.setString(_prefBrain, jsonEncode(safe));
   }
 
-  Future<void> saveCoinbaseCredentials({
+  Future<void> saveCoinSwitchCredentials({
     required String key,
     required String secret,
   }) async {
@@ -239,7 +239,7 @@ class TradingService {
     );
     market.client
       ..apiKey = key
-      ..privateKey = secret;
+      ..secretKey = secret;
   }
 
   Future<void> _persistPaper() async {
@@ -368,33 +368,29 @@ class TradingService {
     if (!_settings.coinbaseConfigured) {
       throw Exception('Coinbase credentials not configured — open Settings.');
     }
-    final accounts = await market.client.getAccounts();
-    final fx = await market.usdInr();
+    // REAL CoinSwitch portfolio: holdings + avg buy price, INR-native.
     var cash = 0.0;
     final positions = <String, Position>{};
-    for (final a in accounts) {
-      final bal =
-          double.tryParse(
-            ((a['available_balance'] ?? {})['value'] ?? '0').toString(),
-          ) ??
+    for (final a in await market.client.portfolio()) {
+      final cur = (a['currency'] as String? ?? '').toUpperCase();
+      final bal = double.tryParse(
+              (a['main_balance'] ?? a['blocked_balance_order'] ?? 0).toString()) ??
+          0;
+      final avg = double.tryParse(
+              (a['buy_average_price'] ?? 0).toString()) ??
           0;
       if (bal <= 0) continue;
-      final cur = (a['currency'] as String? ?? '').toUpperCase();
-      if (cur == 'USD' || cur == 'USDC') {
-        cash += bal * fx;
-      } else if (cur == 'INR') {
+      if (cur == 'INR') {
         cash += bal;
-      } else if (market.symbols.contains(cur)) {
+      } else {
         double price = 0;
         try {
           price = await market.last(cur);
-        } catch (_) {
-          /* mark at 0 if fetch fails */
-        }
+        } catch (_) {/* mark at 0 if fetch fails */}
         positions[cur] = Position(
           symbol: cur,
           quantity: bal,
-          avgPrice: price,
+          avgPrice: avg,
           lastPrice: price,
         );
       }
@@ -472,88 +468,51 @@ class TradingService {
       );
     }
     try {
-      final fx = await market.usdInr();
-      // EXCHANGE RULES from the live product catalog: pick the real quote
+            // EXCHANGE RULES from the live product catalog: pick the real quote
       // book, round to the product's base_increment and enforce minimums
       // BEFORE sending, so Coinbase never rejects on precision or size.
-      final productId = market.liveProductId(p.symbol);
-      final inc = market.baseIncrement(p.symbol);
-      final minBase = market.minBaseSize(p.symbol);
-      final minQuote = market.minQuoteSize(p.symbol);
-      final usdNotional = p.quantity * p.marketPrice / fx; // INR -> USD
-      String? quoteSize;
-      String? baseSize;
-      if (p.side == Side.buy) {
-        final quote = double.parse(usdNotional.toStringAsFixed(2));
-        if (quote <= 0) {
-          return TradeExecution(
-              executed: false, mode: mode, reason: 'Order rounds to zero.');
-        }
-        if (minQuote != null && quote < minQuote) {
-          return TradeExecution(
+      // CoinSwitch spot is LIMIT-only: cross the book for an immediate
+      // fill (buy above ask / sell below bid), then poll order status.
+      TradeExecution fail(String reason) => TradeExecution(
             executed: false,
             mode: mode,
-            reason: 'Order is below the Coinbase minimum for '
-                '$productId (about ${(minQuote * fx).toStringAsFixed(0)}).',
+            reason: reason,
           );
-        }
-        quoteSize = quote.toStringAsFixed(2);
-      } else {
-        var base = p.quantity;
-        if (inc != null && inc > 0) {
-          base = (base / inc).floorToDouble() * inc;
-        }
-        base = double.parse(base.toStringAsFixed(8));
-        if (base <= 0 || (minBase != null && base < minBase)) {
-          return TradeExecution(
-            executed: false,
-            mode: mode,
-            reason: 'Sell size is below the Coinbase minimum for '
-                '$productId.',
-          );
-        }
-        baseSize = base.toStringAsFixed(8);
-      }
-      final resp = await market.client.marketOrder(
-        productId,
-        p.side == Side.buy ? 'BUY' : 'SELL',
-        quoteSize: quoteSize,
-        baseSize: baseSize,
-      );
-      final ok = resp['success'] == true;
-      if (!ok) {
-        return TradeExecution(
-          executed: false,
-          mode: mode,
-          reason: resp['failure_reason']?.toString() ?? 'rejected',
+      Map<String, dynamic> resp;
+      try {
+        resp = await market.client.placeLimitOrder(
+          symbol: p.symbol,
+          side: p.side.wire,
+          price: p.side == Side.buy
+              ? p.marketPrice * 1.005
+              : p.marketPrice * 0.995,
+          quantity: p.quantity,
         );
+      } on CoinSwitchException catch (e) {
+        return fail(e.message);
       }
-      // FILL TRUTH: poll the REAL fills for this order so the journal
-      // records the actual average price (slippage) and fee, never the
-      // pre-trade quote. Falls back to the quote if fills aren't ready.
+      if ((resp['data']?['order_id'] ?? resp['order_id']) == null) {
+        return fail(resp['failure_reason']?.toString() ?? 'rejected');
+      }
+      // FILL TRUTH: poll the order until it fills; journal the ACTUAL
+      // average price and executed quantity.
       var fillPrice = p.marketPrice;
       var fee = 0.0;
-      final orderId = resp['order_id']?.toString() ?? '';
+      final orderId = resp['data']?['order_id']?.toString() ?? '';
       if (orderId.isNotEmpty) {
         try {
-          for (var attempt = 0; attempt < 3; attempt++) {
-            await Future.delayed(const Duration(milliseconds: 600));
-            final fills = await market.client.getFills(orderId);
-            if (fills.isEmpty) continue;
-            var usd = 0.0;
-            var qty = 0.0;
-            var feeUsd = 0.0;
-            for (final f in fills) {
-              final sz = double.tryParse(f['size'] as String? ?? '') ?? 0;
-              usd += (double.tryParse(f['price'] as String? ?? '') ?? 0) * sz;
-              qty += sz;
-              feeUsd += double.tryParse(f['fee'] as String? ?? '') ?? 0;
+          for (var attempt = 0; attempt < 5; attempt++) {
+            await Future.delayed(const Duration(milliseconds: 700));
+            final st = await market.client.getOrder(orderId);
+            final avg =
+                double.tryParse((st['average_price'] ?? 0).toString()) ?? 0;
+            final eq = double.tryParse((st['executed_qty'] ?? 0).toString()) ?? 0;
+            if (avg > 0 && eq > 0) {
+              fillPrice = avg;
+              break;
             }
-            if (qty > 0) {
-              fillPrice = usd / qty * fx;
-              fee = feeUsd * fx;
-            }
-            break;
+            final status = (st['status'] as String? ?? '').toUpperCase();
+            if (status == 'CANCELLED' || status == 'REJECTED') break;
           }
         } catch (_) {/* keep the pre-trade quote as the fill price */}
       }
@@ -563,7 +522,7 @@ class TradingService {
         fillPrice: fillPrice,
         fee: fee,
       );
-    } on CoinbaseException catch (e) {
+    } on CoinSwitchException catch (e) {
       return TradeExecution(
         executed: false,
         mode: AccountMode.live,

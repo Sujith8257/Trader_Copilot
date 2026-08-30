@@ -12,7 +12,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../engine/coinbase_client.dart';
+import '../engine/coinswitch_client.dart';
 import '../format.dart';
 import '../engine/indicators.dart';
 import '../engine/paper_broker.dart';
@@ -127,7 +127,7 @@ class TradingAgent {
   }) : llmClient = llm ?? LlmClient(),
        _http = httpClient ?? http.Client();
 
-  final LiveCoinbaseMarket market;
+  final LiveCoinSwitchMarket market;
   final RiskEngine risk;
   final LlmClient llmClient;
   final http.Client _http;

@@ -8,7 +8,7 @@ import '../../state/providers.dart';
 import '../theme.dart';
 
 /// On-phone settings: agentic brain (Termux Qwen / Gemini / Groq / rule),
-/// Coinbase credentials (secure storage), and risk limits. Everything the
+/// CoinSwitch credentials (secure storage), and risk limits. Everything the
 /// app needs to run standalone lives here.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -144,12 +144,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _saveCoinbase() async {
+  Future<void> _saveCoinSwitch() async {
     setState(() => _savingCb = true);
     try {
       await ref
           .read(tradingServiceProvider)
-          .saveCoinbaseCredentials(
+          .saveCoinSwitchCredentials(
             key: _cbKey.text.trim(),
             secret: _cbSecret.text.trim(),
           );
@@ -157,7 +157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Coinbase credentials stored in the Android Keystore.',
+              'CoinSwitch credentials stored in the Android Keystore.',
             ),
           ),
         );
@@ -255,9 +255,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           const SizedBox(height: 24),
-          const _SectionTitle('Coinbase (live trading + live account)'),
+          const _SectionTitle('CoinSwitch (live trading + live account)'),
           Text(
-            'Paste the CDP API key JSON contents from the Coinbase portal. '
+            'Paste the CDP API key JSON contents from the CoinSwitch portal. '
             'Stored in the Android Keystore — never synced, never exported.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -266,8 +266,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _Field(_cbSecret, 'Private key (base64)', obscure: true),
           const SizedBox(height: 10),
           FilledButton(
-            onPressed: _savingCb ? null : _saveCoinbase,
-            child: Text(_savingCb ? 'Saving…' : 'Save Coinbase credentials'),
+            onPressed: _savingCb ? null : _saveCoinSwitch,
+            child: Text(_savingCb ? 'Saving…' : 'Save CoinSwitch credentials'),
           ),
           const SizedBox(height: 6),
           Builder(
