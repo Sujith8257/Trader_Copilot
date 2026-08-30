@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../engine/coinbase_client.dart';
+import '../format.dart';
 import '../engine/indicators.dart';
 import '../engine/paper_broker.dart';
 import '../engine/risk_engine.dart';
@@ -312,13 +313,17 @@ class TradingAgent {
     final scan = await toolScanMarket();
     // Goal-aware candidate set: anything the user named in the goal comes
     // FIRST (so "analyze BTC" always analyzes BTC), then the top scored.
-    final named = scan
-        .where((r) => goal.toUpperCase().contains(r['symbol'] as String))
-        .toList();
+    final goalSyms = _goalSymbols(goal);
+    final named = scan.where((r) => goalSyms.contains(r['symbol'])).toList();
     final top = [
       ...named,
       ...scan.where((r) => !named.contains(r)),
     ].take(6).toList();
+    emit(
+      'scanner',
+      'candidates',
+      'Shortlist: ${top.map((r) => r['symbol']).join(', ')}',
+    );
     for (final t in top) {
       emit(
         'scanner',
@@ -441,6 +446,9 @@ class TradingAgent {
           '${side.wire} ${p.quantity} $sym @ ₹${_round2(p.marketPrice)} — '
               'risk: ${p.allowed ? "ALLOWED" : "BLOCKED"}',
         );
+      } else {
+        emit('drafter', 'skipped',
+            '$sym: no proposal drafted - live price or sizing unavailable.');
       }
     }
     if (res.proposals.isEmpty && res.reply.isEmpty) {
@@ -486,6 +494,36 @@ class TradingAgent {
     'sui', 'arbitrum', 'optimism', 'tron', 'near protocol',
     'bitcoin cash', 'binance coin',
   ];
+
+  /// Full names -> tickers, so 'analyze bitcoin' resolves to BTC even
+  /// when BTC is absent from the current scan universe.
+  static const _coinNameToSymbol = {
+    'bitcoin': 'BTC',
+    'ethereum': 'ETH',
+    'solana': 'SOL',
+    'cardano': 'ADA',
+    'dogecoin': 'DOGE',
+    'chainlink': 'LINK',
+    'avalanche': 'AVAX',
+    'ripple': 'XRP',
+    'polkadot': 'DOT',
+    'cosmos': 'ATOM',
+    'litecoin': 'LTC',
+    'tron': 'TRX',
+    'stellar': 'XLM',
+  };
+
+  /// Symbols the GOAL explicitly names (ticker or full name).
+  Set<String> _goalSymbols(String goal) {
+    final upper = goal.toUpperCase();
+    final lower = goal.toLowerCase();
+    return {
+      for (final s in market.symbols)
+        if (upper.contains(s)) s,
+      for (final e in _coinNameToSymbol.entries)
+        if (lower.contains(e.key)) e.value,
+    };
+  }
 
   /// True when the goal names a SPECIFIC coin. Such requests must always
   /// reach the real LLM crew, never the canned suggestion carousel.
@@ -699,6 +737,10 @@ class TradingAgent {
   // Rule brain — the full pipeline with zero LLM calls (offline mode)   //
   // ------------------------------------------------------------------ //
 
+  void emit2(AgentRunResult res, String agent, String tool, String detail) {
+    res.step(agent, tool, detail);
+  }
+
   Future<void> _runRuleBrain(PaperBroker broker, AgentRunResult res) async {
     res.step(
       'scanner',
@@ -716,6 +758,58 @@ class TradingAgent {
     }
     if (scan.isEmpty) {
       res.reply = 'Could not reach live market data. Check your internet.';
+      return;
+    }
+
+    // Goal-aware: "analyze BTC" must analyze BTC even on the offline brain.
+    final focus = _goalSymbols(res.goal);
+    if (focus.isNotEmpty) {
+      final sym = focus.first;
+      res.step(
+        'scanner',
+        'focus',
+        'Goal names $sym — analyzing it directly.',
+      );
+      final ind = await toolIndicators(sym);
+      final trend = ind['trend'] as String? ?? 'DOWN';
+      final r = ind['rsi'] as double?;
+      emit2(res, 'analyst', 'indicators',
+          '$sym: trend $trend, RSI ${r?.toStringAsFixed(0) ?? '-'}');
+      final held = broker.account.positions[sym];
+      final wantSell =
+          held != null && (trend == 'DOWN' || (r != null && r > 70));
+      final entryOk = trend == 'UP' && (r == null || r < 70) && held == null;
+      if (wantSell || entryOk) {
+        final side = wantSell ? Side.sell : Side.buy;
+        final p = await _draftProposalAsync(
+          sym,
+          side,
+          broker,
+          rationale: wantSell
+              ? 'Rule exit: $sym trend $trend, RSI ${r?.toStringAsFixed(0) ?? '-'} — protecting the position.'
+              : 'Rule analysis: $sym trend $trend, RSI ${r?.toStringAsFixed(0) ?? '-'} — entry conditions met.',
+        );
+        if (p != null) {
+          res.proposals.add(p);
+          emit2(res, 'drafter', 'proposal',
+              '${side.wire} ${formatQty(p.quantity)} $sym @ '
+              '₹${_round2(p.marketPrice)} — risk: '
+              '${p.allowed ? "ALLOWED" : "BLOCKED"}');
+          res.reply =
+              'Analysis of $sym: trend $trend, RSI ${r?.toStringAsFixed(0) ?? "-"}. '
+              'Drafted a ${side.wire} proposal below — the Risk Engine has '
+              'checked it. Review and approve.';
+        } else {
+          res.reply =
+              'Analysis of $sym: trend $trend, RSI ${r?.toStringAsFixed(0) ?? "-"}. '
+              'Conditions look right, but no proposal could be drafted right '
+              'now (live price or sizing unavailable).';
+        }
+      } else {
+        res.reply =
+            'Analysis of $sym: trend $trend, RSI ${r?.toStringAsFixed(0) ?? "-"}. '
+            '${held != null ? "Holding — exit triggers are trend DOWN or RSI>70." : "No entry met the filters right now (need UP trend + RSI<70)."}';
+      }
       return;
     }
 
