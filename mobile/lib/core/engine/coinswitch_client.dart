@@ -114,19 +114,34 @@ class CoinSwitchClient {
         false);
   }
 
+  List<Map<String, dynamic>>? _tickerCache;
+  DateTime? _tickerAt;
+
+  /// ONE request for ALL tickers, cached 10s — the heartbeat and scans
+  /// must never hammer the endpoint per-symbol.
   Future<List<Map<String, dynamic>>> ticker(
       {String exchange = 'coinswitchx'}) async {
+    final at = _tickerAt;
+    if (_tickerCache != null &&
+        at != null &&
+        DateTime.now().difference(at).inSeconds < 10) {
+      return _tickerCache!;
+    }
     final body = await _request('GET', '/trade/api/v2/ticker',
         params: {'exchange': exchange});
     final data = body['data'];
-    if (data is List) return data.cast<Map<String, dynamic>>();
-    if (data is Map) {
-      return [
+    if (data is List) {
+      _tickerCache = data.cast<Map<String, dynamic>>();
+    } else if (data is Map) {
+      _tickerCache = [
         for (final e in data.entries)
           {'symbol': e.key, ...(e.value as Map).cast<String, dynamic>()}
       ];
+    } else {
+      _tickerCache = const [];
     }
-    return const [];
+    _tickerAt = DateTime.now();
+    return _tickerCache!;
   }
 
   Future<List<String>> activeCoins({String exchange = 'coinswitchx'}) async {
@@ -209,7 +224,21 @@ class LiveCoinSwitchMarket {
     final at = _productsAt;
     if (at != null && DateTime.now().difference(at).inMinutes < 5) return;
     try {
-      final coins = await client.activeCoins();
+      // CoinSwitch lists 400+ coins — scanning all of them caused severe
+      // main-thread jank (400+ requests + parses). Keep the top 30 by 24h
+      // volume instead.
+      final tickers = await client.ticker();
+      double vol(Map<String, dynamic> t) =>
+          double.tryParse((t['volume'] ?? t['quote_volume'] ?? 0).toString()) ??
+          0;
+      final inr = tickers
+          .where((t) => (t['symbol'] as String? ?? '').endsWith('/INR'))
+          .toList()
+        ..sort((a, b) => vol(b).compareTo(vol(a)));
+      final coins = [
+        for (final t in inr.take(30))
+          (t['symbol'] as String).split('/').first
+      ];
       if (coins.length >= 5) {
         _products = coins;
         _productsAt = DateTime.now();
