@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../agent/agent_engine.dart';
 import '../agent/llm_client.dart';
+import '../format.dart';
 import '../models.dart';
 import 'alerts.dart';
 import 'coinbase_client.dart';
@@ -615,7 +616,97 @@ class TradingService {
     return result;
   }
 
-  /// Drafts a proposal for a symbol (BUY by default) using the same
+  /// DIRECT TRADE: "trade 300". The crew thinks, picks the best use of the
+  /// amount, and EXECUTES immediately — your command IS the approval. The
+  /// deterministic Risk Engine still gates the order, and the fill is
+  /// journaled with the real price + fee (mode-scoped: paper or live).
+  Future<AgentRunResult> tradeWithAmount(
+    String goal,
+    double amount, {
+    required AccountMode mode,
+    String? chatId,
+  }) async {
+    await ensureLoaded();
+    final broker = await brokerFor(mode);
+    final result = await agent.decideDirectTrade(goal, amount, broker, brain);
+    final p = result.proposals.isNotEmpty ? result.proposals.first : null;
+
+    Future<void> persist() async {
+      try {
+        await history.addSession(
+          goal: goal,
+          brain: result.brain,
+          reply: result.reply,
+          steps: [
+            for (final s in result.steps) [s.agent, s.tool, s.detail],
+          ],
+          proposals: [
+            for (final pr in result.proposals)
+              {
+                'symbol': pr.symbol,
+                'side': pr.side.wire,
+                'quantity': pr.quantity,
+                'price': pr.marketPrice,
+                'allowed': pr.allowed,
+              },
+          ],
+          chatId: chatId,
+        );
+      } catch (_) {/* history must never break the crew */}
+    }
+
+    if (p == null || !p.allowed) {
+      await persist();
+      return result;
+    }
+    final exec = await executeWithAmount(p, amount, mode);
+    final qty = exec.executed
+        ? amount / (exec.fillPrice ?? p.marketPrice)
+        : p.quantity;
+    history.addDecision(
+      symbol: p.symbol,
+      side: p.side.wire,
+      quantity: qty,
+      price: exec.fillPrice ?? p.marketPrice,
+      mode: mode.name,
+      approved: exec.executed,
+      reason: exec.reason,
+      source: 'agent',
+    );
+    if (exec.executed) {
+      final fill = exec.fillPrice ?? p.marketPrice;
+      await history.addTrade(
+        ExecutedTrade(
+          symbol: p.symbol,
+          side: p.side,
+          quantity: qty,
+          filledPrice: fill,
+          at: DateTime.now(),
+          mode: mode.name,
+          source: 'agent',
+          fee: exec.fee,
+        ),
+      );
+      result.step(
+        'execution',
+        'filled',
+        'BUY ${formatQty(qty)} ${p.symbol} filled at ₹${_round2(fill)} '
+            '(fee ₹${_round2(exec.fee)})',
+      );
+      result.reply =
+          'Done. Bought ${formatQty(qty)} ${p.symbol} at ₹${fill.toStringAsFixed(2)} '
+          '(fee ₹${exec.fee.toStringAsFixed(2)}). '
+          'Stop ₹${p.stopLoss?.toStringAsFixed(0) ?? '-'}, '
+          'target ₹${p.takeProfit?.toStringAsFixed(0) ?? '-'}.';
+    } else {
+      result.step('execution', 'blocked', exec.reason ?? 'rejected');
+      result.reply = 'Not executed: ${exec.reason ?? 'rejected'}';
+    }
+    await persist();
+    return result;
+  }
+
+  /// Drafts a proposal for a symbol (BUY by default) using the same (BUY by default) using the same
   /// deterministic sizing + Risk Engine used by the crew. Returns null if
   /// live price/bars cannot be fetched. Used by the Agent screen's
   /// suggestion cards: user taps Trade → amount dialog → executeWithAmount.
@@ -822,3 +913,5 @@ Future<List<T>> _mapPool<T>(
   }
   return out;
 }
+
+double _round2(double v) => (v * 100).roundToDouble() / 100;

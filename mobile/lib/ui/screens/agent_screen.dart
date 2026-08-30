@@ -53,13 +53,29 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     chat.setSending(true);
     _scrollDown();
     try {
-      final result = await ref
-          .read(tradingServiceProvider)
-          .runCrew(
-            msg,
-            chatId: chatId,
-            mode: ref.read(tradingModeProvider),
-          );
+      final svc = ref.read(tradingServiceProvider);
+      // "trade 300" is a COMMAND: think, pick, execute — no extra prompts.
+      final direct = svc.agent.directTradeAmount(msg);
+      final AgentRunResult result;
+      if (direct != null) {
+        result = await svc.tradeWithAmount(
+          msg,
+          direct,
+          mode: ref.read(tradingModeProvider),
+          chatId: chatId,
+        );
+        // The fill changed the mode-scoped account: refresh everything.
+        ref.invalidate(accountProvider);
+        ref.invalidate(historyProvider);
+        ref.invalidate(journalProvider);
+        ref.invalidate(decisionsProvider);
+      } else {
+        result = await svc.runCrew(
+          msg,
+          chatId: chatId,
+          mode: ref.read(tradingModeProvider),
+        );
+      }
       chat.pushOrReplaceResult(result);
     } catch (e) {
       final err = AgentRunResult(goal: msg)

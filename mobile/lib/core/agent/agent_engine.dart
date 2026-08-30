@@ -667,6 +667,118 @@ class TradingAgent {
             'Risk Engine will size and check the order.';
   }
 
+  // ------------------------------------------------------------------ //
+  // Direct trade — "trade 300": think, pick the best use, EXECUTE       //
+  // ------------------------------------------------------------------ //
+
+  /// Detects an imperative direct-trade command with an amount: "trade
+  /// 300", "invest 500 in eth", "buy 250". Returns the amount, or null
+  /// when the message is a question/idea request (those keep the normal
+  /// crew / suggestion flow).
+  double? directTradeAmount(String goal) {
+    final g = goal.toLowerCase();
+    if (RegExp(r'(suggest|recommend|ideas?|picks|opportunit|what should|'
+                r'best coin|what to buy|review|analyze)')
+        .hasMatch(g)) {
+      return null; // an idea request, not a trade command
+    }
+    final m = _amountRe.firstMatch(goal);
+    if (m == null) return null;
+    final hasVerb =
+        RegExp(r'(^|\s)(trade|invest|buy|deploy|put)\b').hasMatch(g);
+    if (!hasVerb) return null;
+    final v = double.tryParse(m.group(1)!.replaceAll(',', ''));
+    return (v != null && v >= 100) ? v : null;
+  }
+
+  /// The crew THINKS (scan → score → pick the best qualifying use of the
+  /// amount) and returns the drafted proposal. Execution is the service's
+  /// job — your command is the approval; the Risk Engine still gates it.
+  Future<AgentRunResult> decideDirectTrade(
+    String goal,
+    double amount,
+    PaperBroker broker,
+    BrainConfig brain, {
+    void Function(AgentStep)? onStep,
+  }) async {
+    final res = AgentRunResult(goal: goal);
+    res.suggestedAmount = amount;
+    void emit(String agent, String tool, String detail) {
+      res.step(agent, tool, detail);
+      onStep?.call(res.steps.last);
+    }
+
+    emit(
+      'system',
+      'intent',
+      'Direct trade command: ₹${_round2(amount)} — executing without '
+          'further confirmation (the Risk Engine still gates the order).',
+    );
+    emit('scanner', 'scan_market',
+        'Finding the best use of ₹${_round2(amount)}…');
+    final scan = await toolScanMarket();
+    if (scan.isEmpty) {
+      res.reply = 'Could not reach live market data — nothing was traded.';
+      return res;
+    }
+    final goalSyms = _goalSymbols(goal);
+    final named = scan.where((r) => goalSyms.contains(r['symbol'])).toList();
+    final pool = named.isNotEmpty ? named : scan;
+    emit(
+      'scanner',
+      'candidates',
+      'Shortlist: ${pool.take(4).map((r) => r['symbol']).join(', ')}',
+    );
+    // Pick the best qualifying setup (UP trend, RSI<70). If the user named
+    // a coin, that coin wins even when its setup is imperfect — it's an
+    // explicit order, not a suggestion.
+    Map<String, dynamic>? pick;
+    for (final t in pool) {
+      final trend = t['trend'] as String? ?? 'DOWN';
+      final r = t['rsi'] as double?;
+      if (trend == 'UP' && (r == null || r < 70)) {
+        pick = t;
+        break;
+      }
+    }
+    pick ??= named.isNotEmpty ? named.first : scan.first;
+    final sym = pick['symbol'] as String;
+    emit(
+      'strategist',
+      'thought',
+      'Best use of ₹${_round2(amount)}: $sym (trend ${pick['trend']}, '
+          'RSI ${pick['rsi']}, score '
+          '${(pick['score'] as double).toStringAsFixed(2)}).',
+    );
+    final p = await _draftProposalAsync(
+      sym,
+      Side.buy,
+      broker,
+      rationale: 'Direct trade of ₹${_round2(amount)} — best scored setup '
+          '(trend ${pick['trend']}, RSI ${pick['rsi']}).',
+      confidence: 0.8,
+    );
+    if (p == null) {
+      res.reply = 'Could not draft the trade for $sym (live price or '
+          'sizing unavailable). Nothing was executed.';
+      return res;
+    }
+    res.proposals.add(p);
+    emit(
+      'drafter',
+      'risk_engine',
+      'Drafted BUY ${formatQty(p.quantity)} $sym — risk: '
+          '${p.allowed ? "ALLOWED" : "BLOCKED"}',
+    );
+    res.reply = p.allowed
+        ? 'Executing: ₹${_round2(amount)} into $sym (trend ${pick['trend']}, '
+            'RSI ${pick['rsi']})…'
+        : 'The Risk Engine blocked this trade: '
+            '${p.verdict.violations.first}';
+    res.brain = brain.isLlm ? brain.kind.name : 'rule';
+    return res;
+  }
+
   Future<AgentProposal?> _draftProposalAsync(
     String symbol,
     Side side,
