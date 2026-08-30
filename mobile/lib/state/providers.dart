@@ -32,7 +32,16 @@ class TradingModeNotifier extends Notifier<AccountMode> {
   @override
   AccountMode build() => AccountMode.paper;
 
-  void set(AccountMode mode) => state = mode;
+  void set(AccountMode mode) {
+    state = mode;
+    // Toggling modes re-renders EVERYTHING mode-scoped: the account
+    // (paper cash vs real Coinbase equity), positions, the journal and
+    // the copilot decision history.
+    ref.invalidate(accountProvider);
+    ref.invalidate(historyProvider);
+    ref.invalidate(journalProvider);
+    ref.invalidate(decisionsProvider);
+  }
 }
 
 final tradingModeProvider = NotifierProvider<TradingModeNotifier, AccountMode>(
@@ -47,6 +56,11 @@ final marketProvider = Provider<Market>((ref) => Market.crypto);
 final accountProvider = FutureProvider.autoDispose<AccountState>((ref) async {
   await ref.watch(engineReadyProvider.future);
   final svc = ref.watch(tradingServiceProvider);
+  // Mode-scoped: PAPER marks the paper book to live prices; LIVE shows
+  // your REAL Coinbase balances and holdings. No cross-contamination.
+  if (ref.watch(tradingModeProvider) == AccountMode.live) {
+    return svc.liveAccount();
+  }
   final acct = svc.paper.account;
   for (final sym in acct.positions.keys.toList()) {
     try {
@@ -365,7 +379,10 @@ class AutopilotNotifier extends Notifier<AutopilotState> {
     state = state.copyWith(running: true);
     final svc = ref.read(tradingServiceProvider);
     try {
-      final result = await svc.runCrew(state.goal);
+      final result = await svc.runCrew(
+        state.goal,
+        mode: ref.read(tradingModeProvider),
+      );
       ref.read(pendingProposalsProvider.notifier).addAll(result.proposals);
       ref.invalidate(accountProvider);
     } catch (_) {

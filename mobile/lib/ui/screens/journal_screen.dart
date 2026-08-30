@@ -17,7 +17,13 @@ class JournalScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final trades = ref.watch(journalProvider);
+    // Mode-scoped journal: PAPER shows paper fills, LIVE shows real
+    // Coinbase fills — never mixed.
+    final mode = ref.watch(tradingModeProvider);
+    final trades = ref
+        .watch(journalProvider)
+        .where((t) => t.mode == mode.name)
+        .toList();
 
     if (trades.isEmpty) {
       return EmptyState(
@@ -106,7 +112,10 @@ class JournalScreen extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        SectionHeader('History'),
+        SectionHeader(
+          'History',
+          trailing: '${mode.name.toUpperCase()} account',
+        ),
         for (var i = trades.length - 1; i >= 0; i--)
           _TradeTile(trades[i], realizedPnl: pnlByTrade[i]),
       ],

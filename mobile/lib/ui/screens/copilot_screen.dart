@@ -713,22 +713,29 @@ class _CopilotHistory extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final decisions = ref.watch(decisionsProvider);
-    return decisions.when(
+    final mode = ref.watch(tradingModeProvider);
+    return ref.watch(decisionsProvider).when(
       loading: () => const SizedBox.shrink(),
       error: (_, _) => const SizedBox.shrink(),
-      data: (list) {
-        if (list.isEmpty) return const SizedBox.shrink();
+      data: (allDecisions) {
+        // Mode-scoped decision history: paper and live never mix.
+        final decisions = allDecisions
+            .where((d) => (d['mode'] as String? ?? 'paper') == mode.name)
+            .toList();
+        if (decisions.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 24),
-            SectionHeader('History', trailing: '${list.length} decisions'),
+            SectionHeader(
+              'History',
+              trailing: '${decisions.length} ${mode.name} decisions',
+            ),
             const SizedBox(height: 10),
-            for (var i = list.length - 1;
-                i >= (list.length > 20 ? list.length - 20 : 0);
+            for (var i = decisions.length - 1;
+                i >= (decisions.length > 20 ? decisions.length - 20 : 0);
                 i--)
-              _DecisionTile(d: list[i]),
+              _DecisionTile(d: decisions[i]),
           ],
         );
       },

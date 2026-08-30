@@ -92,6 +92,42 @@ class TradingService {
   Settings _settings = Settings();
   bool _loaded = false;
 
+  PaperBroker? _liveBrokerCache;
+  DateTime? _liveBrokerAt;
+
+  /// Mode-scoped execution context. PAPER: the persisted paper broker.
+  /// LIVE: an in-memory broker holding a snapshot of the REAL Coinbase
+  /// balances/positions (never persisted, 10s cache) so sizing, account
+  /// context and force-exit all operate on live money. Nothing paper
+  /// leaks into live, nothing live lands in the paper account.
+  Future<PaperBroker> brokerFor(AccountMode mode) async {
+    await ensureLoaded();
+    if (mode != AccountMode.live) return paper;
+    final now = DateTime.now();
+    final cached = _liveBrokerCache;
+    if (cached != null &&
+        _liveBrokerAt != null &&
+        now.difference(_liveBrokerAt!).inSeconds < 10) {
+      return cached;
+    }
+    final live = await liveAccount();
+    final acct = EngineAccount(accountId: 'coinbase-live');
+    acct.cash = live.cash;
+    acct.dayStart = live.cash;
+    for (final p in live.positions.values) {
+      acct.positions[p.symbol] = EnginePosition(
+        symbol: p.symbol,
+        quantity: p.quantity,
+        avgPrice: p.avgPrice,
+        currentPrice: p.lastPrice,
+      );
+    }
+    final b = PaperBroker.fromMap(acct.toMap());
+    _liveBrokerCache = b;
+    _liveBrokerAt = now;
+    return b;
+  }
+
   EngineAccount? _liveGateCache;
   DateTime? _liveGateAt;
 
@@ -541,11 +577,15 @@ class TradingService {
     String goal, {
     void Function(AgentStep)? onStep,
     String? chatId,
+    AccountMode? mode,
   }) async {
     await ensureLoaded();
+    // The crew reasons over the account of the SELECTED mode: in LIVE it
+    // sees and sizes against your real Coinbase balances, never paper.
+    final broker = await brokerFor(mode ?? AccountMode.paper);
     final result = await agent.runGoal(
       goal,
-      broker: paper,
+      broker: broker,
       brain: brain,
       onStep: onStep,
     );
@@ -579,12 +619,16 @@ class TradingService {
   /// deterministic sizing + Risk Engine used by the crew. Returns null if
   /// live price/bars cannot be fetched. Used by the Agent screen's
   /// suggestion cards: user taps Trade → amount dialog → executeWithAmount.
-  Future<AgentProposal?> draftProposal(String symbol, {Side side = Side.buy}) async {
+  Future<AgentProposal?> draftProposal(
+    String symbol, {
+    Side side = Side.buy,
+    AccountMode mode = AccountMode.paper,
+  }) async {
     await ensureLoaded();
     return agent.draftProposalFor(
       symbol,
       side,
-      paper,
+      await brokerFor(mode),
       rationale: 'Picked from agent suggestions — sized from your amount.',
     );
   }
@@ -644,7 +688,10 @@ class TradingService {
   Future<TradeExecution> closePosition(String symbol, AccountMode mode) async {
     await ensureLoaded();
     final sym = symbol.trim().toUpperCase();
-    final pos = paper.account.positions[sym];
+    // Force-exit operates on the SELECTED mode's position: in LIVE that's
+    // your real Coinbase holding, not the paper book.
+    final broker = await brokerFor(mode);
+    final pos = broker.account.positions[sym];
     if (pos == null) {
       return TradeExecution(
           executed: false, mode: mode, reason: 'No open position in $sym.');
@@ -664,7 +711,7 @@ class TradingService {
         side: Side.sell,
         quantity: pos.quantity,
         marketPrice: price,
-        account: paper.account,
+        account: broker.account,
         entryPrice: price,
         source: 'manual',
       ),

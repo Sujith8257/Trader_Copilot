@@ -55,7 +55,11 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
     try {
       final result = await ref
           .read(tradingServiceProvider)
-          .runCrew(msg, chatId: chatId);
+          .runCrew(
+            msg,
+            chatId: chatId,
+            mode: ref.read(tradingModeProvider),
+          );
       chat.pushOrReplaceResult(result);
     } catch (e) {
       final err = AgentRunResult(goal: msg)
@@ -73,7 +77,10 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
   Future<void> _tradeSuggestion(AgentSuggestion s, double? amount) async {
     final svc = ref.read(tradingServiceProvider);
     final messenger = ScaffoldMessenger.of(context);
-    final p = await svc.draftProposal(s.symbol);
+    final p = await svc.draftProposal(
+      s.symbol,
+      mode: ref.read(tradingModeProvider),
+    );
     if (!mounted) return;
     if (p == null) {
       messenger.showSnackBar(SnackBar(

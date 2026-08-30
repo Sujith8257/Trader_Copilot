@@ -304,8 +304,10 @@ class _PositionScreenState extends ConsumerState<PositionScreen> {
       final svc = ref.read(tradingServiceProvider);
       // Capture the REAL position size BEFORE the close. Journaling 0 here
       // (the old bug) wrote a phantom fill that poisoned the analytics.
-      final soldQty =
-          svc.paper.account.positions[widget.symbol]?.quantity ?? 0;
+      final soldQty = mode == AccountMode.live
+          ? (ref.read(accountProvider).value?.positions[widget.symbol]?.quantity ??
+              0)
+          : (svc.paper.account.positions[widget.symbol]?.quantity ?? 0);
       final exec = await svc.closePosition(widget.symbol, mode);
       if (!exec.executed) {
         messenger.showSnackBar(SnackBar(
