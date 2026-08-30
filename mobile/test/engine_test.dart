@@ -129,6 +129,35 @@ void main() {
       expect(v.allowed, isFalse);
     });
 
+    test('allows EXITING a full position even above max notional', () {
+      // Exits REDUCE risk — the notional cap must never trap a user in a
+      // position (regression: force-exit was blocked with 'Order notional').
+      final acct = _richAccount();
+      acct.positions['BTC'] = EnginePosition(
+        symbol: 'BTC',
+        quantity: 0.01,
+        avgPrice: 5400000,
+        currentPrice: 5400000,
+      );
+      final v = engine.evaluate(
+        symbol: 'BTC',
+        side: Side.sell,
+        quantity: 0.01, // 0.01 x 5,400,000 = ₹54,000 >> ₹25,000 cap
+        marketPrice: 5400000,
+        account: acct,
+      );
+      expect(v.allowed, isTrue);
+      // ...while a BUY above the cap is still blocked.
+      final buy = engine.evaluate(
+        symbol: 'ETH',
+        side: Side.buy,
+        quantity: 1,
+        marketPrice: 270000,
+        account: _richAccount(),
+      );
+      expect(buy.allowed, isFalse);
+    });
+
     test('kill switch blocks everything', () {
       final kill = RiskEngine(config: RiskConfig()..enabled = false);
       final v = kill.evaluate(

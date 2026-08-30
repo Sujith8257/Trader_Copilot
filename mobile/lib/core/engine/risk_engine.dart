@@ -106,8 +106,10 @@ class RiskEngine {
       );
     }
 
-    // 4. Max single-position notional
-    if (cost > cfg.maxPositionNotional) {
+    // 4. Max single-position notional — ENTRIES ONLY. An exit reduces risk;
+    // blocking it would trap the user in a position (the whole point of a
+    // stop is to get OUT), so sells are never notional-capped.
+    if (side == Side.buy && cost > cfg.maxPositionNotional) {
       verdict.block(
         'Order notional ${_fmt(cost)} exceeds max position size '
         '${_fmt(cfg.maxPositionNotional)}.',
