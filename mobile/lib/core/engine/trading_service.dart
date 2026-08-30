@@ -45,11 +45,16 @@ class TradeExecution {
     required this.mode,
     this.fillPrice,
     this.reason,
+    this.fee = 0,
   });
   final bool executed;
   final AccountMode mode;
   final double? fillPrice;
   final String? reason;
+
+  /// Exchange fee in INR, read from the REAL fills when available.
+  /// Paper fills are always 0.
+  final double fee;
 }
 
 /// Result of one auto-refresh heartbeat.
@@ -86,6 +91,47 @@ class TradingService {
   BrainConfig? _brain;
   Settings _settings = Settings();
   bool _loaded = false;
+
+  EngineAccount? _liveGateCache;
+  DateTime? _liveGateAt;
+
+  /// The Risk Engine must judge LIVE orders against the REAL Coinbase
+  /// balances (cash + holdings), never the paper account. Cached 10s so a
+  /// burst of approvals doesn't hammer the accounts endpoint. Falls back
+  /// to the paper account only if the balance fetch fails.
+  Future<EngineAccount> _liveGateAccount() async {
+    final now = DateTime.now();
+    final cached = _liveGateCache;
+    if (cached != null &&
+        _liveGateAt != null &&
+        now.difference(_liveGateAt!).inSeconds < 10) {
+      return cached;
+    }
+    try {
+      final live = await liveAccount();
+      final a = EngineAccount(accountId: 'coinbase-live');
+      a.cash = live.cash;
+      // No Coinbase-side daily PnL baseline exists yet, so anchor the day
+      // at current equity: the daily-loss check stays neutral (the paper
+      // engine keeps its own real baseline).
+      a.dayStart = live.cash;
+      a.realizedPnlToday = 0;
+      a.tradesToday = paper.account.tradesToday;
+      for (final p in live.positions.values) {
+        a.positions[p.symbol] = EnginePosition(
+          symbol: p.symbol,
+          quantity: p.quantity,
+          avgPrice: p.avgPrice,
+          currentPrice: p.lastPrice,
+        );
+      }
+      _liveGateCache = a;
+      _liveGateAt = now;
+      return a;
+    } catch (_) {
+      return paper.account;
+    }
+  }
 
   static const _prefPaper = 'engine_paper_account';
   static const _prefBrain = 'engine_brain';
@@ -333,12 +379,15 @@ class TradingService {
   /// re-checked here — approval alone is never enough.
   Future<TradeExecution> execute(AgentProposal p, AccountMode mode) async {
     await ensureLoaded();
+    // LIVE orders are gated against REAL Coinbase balances and holdings.
+    final gateAccount =
+        mode == AccountMode.live ? await _liveGateAccount() : paper.account;
     final verdict = risk.evaluate(
       symbol: p.symbol,
       side: p.side,
       quantity: p.quantity,
       marketPrice: p.marketPrice,
-      account: paper.account,
+      account: gateAccount,
       entryPrice: p.marketPrice,
       stopLoss: p.stopLoss,
       takeProfit: p.takeProfit,
@@ -387,24 +436,95 @@ class TradingService {
     }
     try {
       final fx = await market.usdInr();
-      final quote = p.quantity * p.marketPrice / fx; // INR -> USD
-      final resp = p.side == Side.buy
-          ? await market.client.marketOrder(
-              '${p.symbol}-USDC',
-              'BUY',
-              quoteSize: quote.toStringAsFixed(2),
-            )
-          : await market.client.marketOrder(
-              '${p.symbol}-USDC',
-              'SELL',
-              baseSize: p.quantity.toStringAsFixed(8),
-            );
+      // EXCHANGE RULES from the live product catalog: pick the real quote
+      // book, round to the product's base_increment and enforce minimums
+      // BEFORE sending, so Coinbase never rejects on precision or size.
+      final productId = market.liveProductId(p.symbol);
+      final inc = market.baseIncrement(p.symbol);
+      final minBase = market.minBaseSize(p.symbol);
+      final minQuote = market.minQuoteSize(p.symbol);
+      final usdNotional = p.quantity * p.marketPrice / fx; // INR -> USD
+      String? quoteSize;
+      String? baseSize;
+      if (p.side == Side.buy) {
+        final quote = double.parse(usdNotional.toStringAsFixed(2));
+        if (quote <= 0) {
+          return TradeExecution(
+              executed: false, mode: mode, reason: 'Order rounds to zero.');
+        }
+        if (minQuote != null && quote < minQuote) {
+          return TradeExecution(
+            executed: false,
+            mode: mode,
+            reason: 'Order is below the Coinbase minimum for '
+                '$productId (about ${(minQuote * fx).toStringAsFixed(0)}).',
+          );
+        }
+        quoteSize = quote.toStringAsFixed(2);
+      } else {
+        var base = p.quantity;
+        if (inc != null && inc > 0) {
+          base = (base / inc).floorToDouble() * inc;
+        }
+        base = double.parse(base.toStringAsFixed(8));
+        if (base <= 0 || (minBase != null && base < minBase)) {
+          return TradeExecution(
+            executed: false,
+            mode: mode,
+            reason: 'Sell size is below the Coinbase minimum for '
+                '$productId.',
+          );
+        }
+        baseSize = base.toStringAsFixed(8);
+      }
+      final resp = await market.client.marketOrder(
+        productId,
+        p.side == Side.buy ? 'BUY' : 'SELL',
+        quoteSize: quoteSize,
+        baseSize: baseSize,
+      );
       final ok = resp['success'] == true;
+      if (!ok) {
+        return TradeExecution(
+          executed: false,
+          mode: mode,
+          reason: resp['failure_reason']?.toString() ?? 'rejected',
+        );
+      }
+      // FILL TRUTH: poll the REAL fills for this order so the journal
+      // records the actual average price (slippage) and fee, never the
+      // pre-trade quote. Falls back to the quote if fills aren't ready.
+      var fillPrice = p.marketPrice;
+      var fee = 0.0;
+      final orderId = resp['order_id']?.toString() ?? '';
+      if (orderId.isNotEmpty) {
+        try {
+          for (var attempt = 0; attempt < 3; attempt++) {
+            await Future.delayed(const Duration(milliseconds: 600));
+            final fills = await market.client.getFills(orderId);
+            if (fills.isEmpty) continue;
+            var usd = 0.0;
+            var qty = 0.0;
+            var feeUsd = 0.0;
+            for (final f in fills) {
+              final sz = double.tryParse(f['size'] as String? ?? '') ?? 0;
+              usd += (double.tryParse(f['price'] as String? ?? '') ?? 0) * sz;
+              qty += sz;
+              feeUsd += double.tryParse(f['fee'] as String? ?? '') ?? 0;
+            }
+            if (qty > 0) {
+              fillPrice = usd / qty * fx;
+              fee = feeUsd * fx;
+            }
+            break;
+          }
+        } catch (_) {/* keep the pre-trade quote as the fill price */}
+      }
       return TradeExecution(
-        executed: ok,
-        mode: AccountMode.live,
-        fillPrice: ok ? p.marketPrice : null,
-        reason: ok ? null : (resp['failure_reason']?.toString() ?? 'rejected'),
+        executed: true,
+        mode: mode,
+        fillPrice: fillPrice,
+        fee: fee,
       );
     } on CoinbaseException catch (e) {
       return TradeExecution(
@@ -484,12 +604,16 @@ class TradingService {
           executed: false, mode: mode, reason: 'Invalid amount.');
     }
     final qty = amount / p.marketPrice;
+    // Honest pre-gate: LIVE orders check the real Coinbase balance here
+    // too, so the user sees the truth BEFORE the approval dialog.
+    final gateAccount =
+        mode == AccountMode.live ? await _liveGateAccount() : paper.account;
     final verdict = risk.evaluate(
       symbol: p.symbol,
       side: p.side,
       quantity: qty,
       marketPrice: p.marketPrice,
-      account: paper.account,
+      account: gateAccount,
       entryPrice: p.marketPrice,
       stopLoss: p.stopLoss,
       takeProfit: p.takeProfit,

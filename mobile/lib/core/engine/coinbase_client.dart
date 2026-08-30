@@ -178,7 +178,20 @@ class CoinbaseClient {
     return (body['products'] as List? ?? []).cast<Map<String, dynamic>>();
   }
 
-  // -- authenticated surface -------------------------------------------------
+  /// REAL fills for one order (auth): the average fill price and the
+  /// exchange fee come from here, so the journal can record what actually
+  /// happened on Coinbase instead of the pre-trade quote.
+  Future<List<Map<String, dynamic>>> getFills(String orderId) async {
+    final body = await _request(
+      'GET',
+      '$_api/orders/historical/fills',
+      auth: true,
+      query: {'order_id': orderId},
+    );
+    return (body['fills'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  // -- authenticated surface -+
   Future<List<Map<String, dynamic>>> getAccounts() async {
     final body = await _request(
       'GET',
@@ -217,6 +230,7 @@ class LiveCoinbaseMarket {
   final CoinbaseClient client;
   List<String> _products;
   DateTime? _productsAt; // last successful live /products refresh
+  final Map<String, Map<String, dynamic>> _productMeta = {};
   final Map<String, List<Candle>> _bars = {};
   final Map<String, DateTime> _barsTs = {};
   final Map<String, (double, DateTime)> _spot = {};
@@ -251,6 +265,7 @@ class LiveCoinbaseMarket {
       if (ranked.length >= 5) {
         ranked.sort((a, b) => b.$2.compareTo(a.$2)); // highest volume first
         _products = [for (final s in ranked.take(40)) s.$1];
+        _metaFrom(prods);
         _productsAt = DateTime.now();
         lastError = null;
       }
@@ -258,6 +273,42 @@ class LiveCoinbaseMarket {
       lastError = 'products: $e';
     }
   }
+
+  final Set<String> _usdcBooks = {};
+
+  void _metaFrom(List<Map<String, dynamic>> prods) {
+    _productMeta.clear();
+    _usdcBooks.clear();
+    for (final p in prods) {
+      final id = p['product_id'] as String? ?? '';
+      if (id.endsWith('-USDC')) {
+        _usdcBooks.add(id.substring(0, id.length - 5));
+        continue;
+      }
+      if (!id.endsWith('-USD')) continue;
+      _productMeta[id.substring(0, id.length - 4)] = p;
+    }
+  }
+
+  /// Exchange rules for a product, straight from the live catalog:
+  /// increment/minimums used to round and validate orders BEFORE sending
+  /// them, so Coinbase never rejects on precision or size.
+  double? baseIncrement(String symbol) =>
+      _num(_productMeta[symbol.trim().toUpperCase()]?['base_increment']);
+  double? minBaseSize(String symbol) =>
+      _num(_productMeta[symbol.trim().toUpperCase()]?['base_min_size']);
+  double? minQuoteSize(String symbol) =>
+      _num(_productMeta[symbol.trim().toUpperCase()]?['quote_min_size']);
+
+  /// Prefer the USDC book when the catalog has it, fall back to USD —
+  /// never assume a pair exists.
+  String liveProductId(String symbol) {
+    final sym = symbol.trim().toUpperCase();
+    return _usdcBooks.contains(sym) ? '$sym-USDC' : '$sym-USD';
+  }
+
+  double? _num(Object? v) =>
+      v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '');
 
   double _volOf(Map<String, dynamic> p) {
     for (final k in const ['volume_24h', 'approximate_quote_24h_volume']) {

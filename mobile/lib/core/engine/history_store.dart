@@ -38,6 +38,7 @@ class HistoryStore {
                     DateTime.now(),
             mode: (e['mode'] as String?) ?? 'paper',
             source: (e['source'] as String?) ?? 'manual',
+            fee: (e['fee'] as num?)?.toDouble() ?? 0,
           ),
       ];
     } catch (_) {
@@ -59,6 +60,7 @@ class HistoryStore {
         'at': t.at.toIso8601String(),
         'mode': t.mode,
         'source': t.source,
+        'fee': t.fee,
       },
     ];
     // keep the newest 500 fills

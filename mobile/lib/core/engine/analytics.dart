@@ -136,7 +136,7 @@ String tradesCsv(List<ExecutedTrade> trades) {
   final pnl = realizedPnlByTrade(trades);
   final buf = StringBuffer(
     'time,symbol,side,quantity,filled_price_inr,notional_inr,'
-    'realized_pnl_inr,mode,source\n',
+    'realized_pnl_inr,fee_inr,mode,source\n',
   );
   for (var i = 0; i < trades.length; i++) {
     final t = trades[i];
@@ -149,6 +149,7 @@ String tradesCsv(List<ExecutedTrade> trades) {
         t.filledPrice.toStringAsFixed(2),
         t.notional.toStringAsFixed(2),
         pnl[i] == null ? '' : pnl[i]!.toStringAsFixed(2),
+        t.fee.toStringAsFixed(2),
         t.mode,
         t.source,
       ].join(','),

@@ -131,6 +131,7 @@ class ExecutedTrade {
     required this.at,
     this.mode = 'paper',
     this.source = 'manual',
+    this.fee = 0,
   });
 
   final String symbol;
@@ -146,6 +147,9 @@ class ExecutedTrade {
   /// What initiated it: 'manual' | 'agent' | 'agent-idea' | 'autopilot'
   /// | 'exit'.
   final String source;
+
+  /// Exchange fee in INR when known (live fills); 0 otherwise.
+  final double fee;
 
   double get notional => quantity * filledPrice;
 }

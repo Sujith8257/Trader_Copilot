@@ -319,6 +319,7 @@ class _PositionScreenState extends ConsumerState<PositionScreen> {
             side: Side.sell,
             quantity: soldQty,
             filledPrice: fill,
+            fee: exec.fee,
             at: DateTime.now(),
             mode: mode.name,
             source: 'exit',

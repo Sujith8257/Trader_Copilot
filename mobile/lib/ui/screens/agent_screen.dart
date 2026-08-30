@@ -116,6 +116,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
           source: 'agent-idea',
           quantity: chosen / (exec.fillPrice ?? p.marketPrice),
           filledPrice: exec.fillPrice ?? p.marketPrice,
+            fee: exec.fee,
           at: DateTime.now(),
         ));
     ref.invalidate(accountProvider);
@@ -181,6 +182,7 @@ class _AgentScreenState extends ConsumerState<AgentScreen> {
             source: 'agent',
             quantity: amount / (exec.fillPrice ?? p.marketPrice),
             filledPrice: exec.fillPrice ?? p.marketPrice,
+            fee: exec.fee,
             at: DateTime.now(),
           ),
         );

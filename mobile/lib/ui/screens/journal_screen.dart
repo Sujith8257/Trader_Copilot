@@ -229,7 +229,8 @@ class _TradeTile extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       'Filled @ ${formatINR(t.filledPrice, decimals: 2)} · '
-                      'Notional ${formatINR(t.notional)}',
+                      'Notional ${formatINR(t.notional)}'
+                      '${t.fee > 0 ? " · Fee ${formatINR(t.fee, decimals: 2)}" : ''}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 4),
