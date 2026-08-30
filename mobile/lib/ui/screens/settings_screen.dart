@@ -257,17 +257,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 24),
           const _SectionTitle('CoinSwitch (live trading + live account)'),
           Text(
-            'Paste the CDP API key JSON contents from the CoinSwitch portal. '
-            'Stored in the Android Keystore — never synced, never exported.',
+            'Enter the API key + secret key from CoinSwitch → Profile → '
+            'API Trading. Stored in the Android Keystore — never synced, '
+            'never exported.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 10),
           _Field(_cbKey, 'API key ID'),
-          _Field(_cbSecret, 'Private key (base64)', obscure: true),
+          _Field(_cbSecret, 'Secret key (Ed25519 hex)', obscure: true),
           const SizedBox(height: 10),
           FilledButton(
             onPressed: _savingCb ? null : _saveCoinSwitch,
             child: Text(_savingCb ? 'Saving…' : 'Save CoinSwitch credentials'),
+          ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.wifi_tethering, size: 18),
+            label: const Text('Test CoinSwitch connection'),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                final ok = await svc.market.client.validateKeys();
+                messenger.showSnackBar(SnackBar(
+                  content: Text(ok
+                      ? 'CoinSwitch connection OK — API key accepted.'
+                      : 'CoinSwitch responded, but the key was NOT accepted.'),
+                  backgroundColor: ok ? TC.gain : TC.loss,
+                ));
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(
+                  content: Text('CoinSwitch error: $e'),
+                  backgroundColor: TC.loss,
+                ));
+              }
+            },
           ),
           const SizedBox(height: 6),
           Builder(
