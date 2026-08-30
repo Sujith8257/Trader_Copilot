@@ -384,9 +384,15 @@ class CoinSwitchClient {
 
   /// exchange. minQuote is INR: orders below it are rejected by CoinSwitch.
 
-  Future<({double? minQuote, double? maxQuote, int? basePrecision})>
-
+  Future<
+      ({
+        double? minQuote,
+        double? maxQuote,
+        int? basePrecision,
+        int? quotePrecision,
+      })>
       tradeInfo(String symbol, {String exchange = 'coinswitchx'}) async {
+
 
     final body = await _request('GET', '/trade/api/v2/tradeInfo',
 
@@ -398,18 +404,12 @@ class CoinSwitchClient {
     final info = exchangeData['$symbol/INR'] as Map<String, dynamic>? ?? {};
     final quote = info['quote'] as Map<String, dynamic>? ?? {};
 
+    final prec = info['precision'] as Map<String, dynamic>? ?? {};
     return (
-
       minQuote: double.tryParse(quote['min']?.toString() ?? ''),
-
       maxQuote: double.tryParse(quote['max']?.toString() ?? ''),
-
-      basePrecision: info['precision'] is Map
-
-          ? (info['precision'] as Map)['base'] as int?
-
-          : null,
-
+      basePrecision: prec['base'] is int ? prec['base'] as int : null,
+      quotePrecision: prec['quote'] is int ? prec['quote'] as int : null,
     );
 
   }

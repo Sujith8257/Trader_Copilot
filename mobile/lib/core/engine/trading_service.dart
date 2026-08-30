@@ -478,34 +478,47 @@ class TradingService {
             mode: mode,
             reason: reason,
           );
-      // Exchange minimums: CoinSwitch rejects orders below quote.min
-      // (e.g. ₹150 for BTC/INR) — check it and say so clearly.
+      // EXCHANGE RULES: LIMIT-only + min/max order value + precision.
+      // Size from the crossing price and round to the symbol's precision —
+      // raw quantities like 0.000038280004 are rejected with 422.
+      final crossed = p.side == Side.buy
+          ? p.marketPrice * 1.005
+          : p.marketPrice * 0.995;
+      int basePrec = 6;
+      int quotePrec = 2;
+      double? minQuote;
+      double? maxQuote;
       try {
         final info = await market.client.tradeInfo(p.symbol);
-        final notional = p.quantity * p.marketPrice;
-        if (info.minQuote != null && notional < info.minQuote!) {
-          return fail('₹${notional.toStringAsFixed(0)} is below the '
-              'CoinSwitch minimum of ₹${info.minQuote!.toStringAsFixed(0)} '
-              'for ${p.symbol}/INR. Add at least '
-              '₹${(info.minQuote! - notional).toStringAsFixed(0)} more.');
-        }
-        if (info.maxQuote != null && notional > info.maxQuote!) {
-          return fail('Order exceeds the CoinSwitch maximum of '
-              '₹${info.maxQuote!.toStringAsFixed(0)} for ${p.symbol}/INR — '
-              'split it into smaller orders.');
-        }
+        basePrec = info.basePrecision ?? basePrec;
+        quotePrec = info.quotePrecision ?? quotePrec;
+        minQuote = info.minQuote;
+        maxQuote = info.maxQuote;
       } on CoinSwitchException catch (e) {
         return fail('Could not read CoinSwitch trade limits: ${e.message}');
+      }
+      var qty = p.side == Side.buy
+          ? (p.quantity * p.marketPrice) / crossed // keep quote ≈ your amount
+          : p.quantity; // sells move your actual holding
+      qty = double.parse(qty.toStringAsFixed(basePrec));
+      final quoteVal = qty * crossed;
+      if (qty <= 0 || (minQuote != null && quoteVal < minQuote)) {
+        return fail(
+            'Order value ₹${quoteVal.toStringAsFixed(0)} is below the '
+            'CoinSwitch minimum of ₹${minQuote?.toStringAsFixed(0) ?? "100"} '
+            'for ${p.symbol}/INR.');
+      }
+      if (maxQuote != null && quoteVal > maxQuote) {
+        return fail('Order exceeds the CoinSwitch maximum of '
+            '₹${maxQuote.toStringAsFixed(0)} for ${p.symbol}/INR — split it.');
       }
       Map<String, dynamic> resp;
       try {
         resp = await market.client.placeLimitOrder(
           symbol: p.symbol,
           side: p.side.wire,
-          price: p.side == Side.buy
-              ? p.marketPrice * 1.005
-              : p.marketPrice * 0.995,
-          quantity: p.quantity,
+          price: double.parse(crossed.toStringAsFixed(quotePrec)),
+          quantity: qty,
         );
       } on CoinSwitchException catch (e) {
         return fail(e.message);
