@@ -455,7 +455,8 @@ String _newChatId() =>
 
 AgentRunResult _agentGreeting() {
   final r = AgentRunResult(goal: 'hello');
-  r.brain = 'rule';
+  r.brain = 'system'; // UI intro, NOT a crew answer — the crew replies
+  // agentic/LLM-generated once you actually ask something.
   r.reply =
       "Hi! I'm your agentic trading crew running fully on this phone "
       'over LIVE Coinbase data. I scan the market, read the news, check '

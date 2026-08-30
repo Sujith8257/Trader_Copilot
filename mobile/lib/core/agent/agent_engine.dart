@@ -146,8 +146,8 @@ class TradingAgent {
     // user trades any of them with one tap (amount asked in the UI).
     if (_wantsSuggestions(goal)) {
       res.suggestedAmount = _extractAmount(goal);
-      await _runSuggestions(res);
-      res.brain = 'rule';
+      await _runSuggestions(res, brain);
+      res.brain = brain.isLlm ? brain.kind.name : 'rule';
       return res;
     }
 
@@ -487,7 +487,7 @@ class TradingAgent {
     return (v != null && v >= 100) ? v : null;
   }
 
-  Future<void> _runSuggestions(AgentRunResult res) async {
+  Future<void> _runSuggestions(AgentRunResult res, BrainConfig brain) async {
     res.step(
       'scanner',
       'scan_market',
@@ -532,6 +532,56 @@ class TradingAgent {
       );
     }
     final amt = res.suggestedAmount;
+    // AGENTIC narration: when an LLM brain is configured, the strategist
+    // WRITES the reasoning behind these live-scored picks. The template
+    // below is only the offline/rule-brain fallback.
+    final picksCtx = jsonEncode([
+      for (final s in res.suggestions)
+        {
+          'symbol': s.symbol,
+          'price_inr': _round2(s.price),
+          'change_24h_pct': s.changePct,
+          'rsi': s.rsi,
+          'trend': s.trend,
+          'score': _round2(s.score),
+        },
+    ]);
+    if (brain.isLlm) {
+      try {
+        res.step(
+          'strategist',
+          'llm',
+          'Writing the reasoning behind the ${res.suggestions.length} '
+              'live-scored picks…',
+        );
+        final said = (await llmClient.chat([
+          const ChatMessage.system(
+            'You are the strategist of a crypto trading crew. In 2-4 short '
+            'sentences explain what these LIVE scored ideas have in common '
+            'and name one caution. Plain text only - no lists, no markdown, '
+            'no JSON. You never promise returns and you never invent prices.',
+          ),
+          ChatMessage.user(
+            'USER ASK: ${res.goal}\n'
+            '${amt != null ? 'USER AMOUNT: ₹${_round2(amt)}\n' : ''}'
+            'LIVE SCORED IDEAS: $picksCtx\n'
+            'Explain the ideas and how the user should choose between them. '
+            'Mention 1-2 tickers by name.',
+          ),
+        ], brain: brain)).trim();
+        if (said.isNotEmpty) {
+          res.reply = said;
+          return;
+        }
+      } on LlmException catch (e) {
+        res.step(
+          'system',
+          'fallback',
+          'LLM narration unavailable (${e.message}) — using the '
+              'deterministic summary.',
+        );
+      }
+    }
     res.reply = amt != null
         ? 'Here are my top ${res.suggestions.length} ideas for your '
             '₹${_round2(amt)} — tap TRADE on one and I will size the order '
