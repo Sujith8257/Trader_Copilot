@@ -71,6 +71,11 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
 
   Future<void> _evaluate() async {
     if (!_formKey.currentState!.validate()) return;
+    // BUG 2 fix: the displayed verdict must come from the SELECTED mode's
+    // real balances (CoinSwitch portfolio in LIVE), not the paper book.
+    final mode = ref.read(tradingModeProvider);
+    final gateAccount =
+        await ref.read(tradingServiceProvider).riskAccountFor(mode);
     if (_livePrice == null) {
       await _fetchPrice();
       if (_livePrice == null) return;
@@ -96,7 +101,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
           side: _side,
           quantity: double.parse(_quantity.text),
           marketPrice: _livePrice!,
-          account: svc.paper.account,
+          account: gateAccount,
           entryPrice: _livePrice!,
           stopLoss: double.tryParse(_stopLoss.text),
           takeProfit: double.tryParse(_takeProfit.text),

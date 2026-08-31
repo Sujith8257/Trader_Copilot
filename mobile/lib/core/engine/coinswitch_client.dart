@@ -360,6 +360,8 @@ class CoinSwitchClient {
 
     required double quantity,
 
+    int? expiryPeriod,
+
   }) =>
 
       _request('POST', '/trade/api/v2/order', body: {
@@ -375,6 +377,8 @@ class CoinSwitchClient {
         'quantity': quantity,
 
         'exchange': 'coinswitchx',
+
+        if (expiryPeriod != null) 'expiry_period': expiryPeriod,
 
       });
 

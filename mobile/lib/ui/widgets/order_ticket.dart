@@ -88,12 +88,14 @@ class _OrderTicketState extends ConsumerState<_OrderTicket> {
               side: _side,
               quantity: qty,
               limitPrice: price,
+              mode: ref.read(tradingModeProvider),
             )
           : await svc.placeManualMarket(
               symbol: widget.symbol,
               side: _side,
               quantity: qty,
               marketPrice: price,
+              mode: ref.read(tradingModeProvider),
             );
       HapticFeedback.mediumImpact();
       ref.invalidate(accountProvider);

@@ -136,7 +136,14 @@ class TradingService {
   /// balances (cash + holdings), never the paper account. Cached 10s so a
   /// burst of approvals doesn't hammer the accounts endpoint. Falls back
   /// to the paper account only if the balance fetch fails.
-  Future<EngineAccount> _liveGateAccount() async {
+  /// The Risk Engine account for the SELECTED mode: LIVE judges orders
+  /// against REAL CoinSwitch balances, PAPER against the paper book.
+  Future<EngineAccount> riskAccountFor(AccountMode mode) async {
+    if (mode != AccountMode.live) return paper.account;
+    return _liveGateSnapshot();
+  }
+
+  Future<EngineAccount> _liveGateSnapshot() async {
     final now = DateTime.now();
     final cached = _liveGateCache;
     if (cached != null &&
@@ -413,8 +420,7 @@ class TradingService {
   Future<TradeExecution> execute(AgentProposal p, AccountMode mode) async {
     await ensureLoaded();
     // LIVE orders are gated against REAL Coinbase balances and holdings.
-    final gateAccount =
-        mode == AccountMode.live ? await _liveGateAccount() : paper.account;
+    final gateAccount = await riskAccountFor(mode);
     final verdict = risk.evaluate(
       symbol: p.symbol,
       side: p.side,
@@ -732,8 +738,7 @@ class TradingService {
     final qty = amount / p.marketPrice;
     // Honest pre-gate: LIVE orders check the real Coinbase balance here
     // too, so the user sees the truth BEFORE the approval dialog.
-    final gateAccount =
-        mode == AccountMode.live ? await _liveGateAccount() : paper.account;
+    final gateAccount = await riskAccountFor(mode);
     final verdict = risk.evaluate(
       symbol: p.symbol,
       side: p.side,
@@ -816,14 +821,18 @@ class TradingService {
     required double quantity,
     required double marketPrice,
     double? stopLoss,
+    required AccountMode mode,
   }) async {
     await ensureLoaded();
+    // BUG 1 fix: LIVE orders are judged against REAL balances and executed
+    // in the SELECTED mode — never paper-gated/live-executed again.
+    final gateAccount = await riskAccountFor(mode);
     final verdict = risk.evaluate(
       symbol: symbol,
       side: side,
       quantity: quantity,
       marketPrice: marketPrice,
-      account: paper.account,
+      account: gateAccount,
       entryPrice: marketPrice,
       stopLoss: stopLoss,
       source: 'manual',
@@ -831,7 +840,7 @@ class TradingService {
     if (!verdict.allowed) {
       return TradeExecution(
         executed: false,
-        mode: AccountMode.paper,
+        mode: mode,
         reason: verdict.violations.first,
       );
     }
@@ -845,7 +854,7 @@ class TradingService {
         rationale: 'Manual order from the chart order ticket',
         verdict: verdict,
       ),
-      AccountMode.live,
+      mode,
     );
   }
 
@@ -856,23 +865,65 @@ class TradingService {
     required Side side,
     required double quantity,
     required double limitPrice,
+    required AccountMode mode,
   }) async {
     await ensureLoaded();
+    final gateAccount = await riskAccountFor(mode);
     final verdict = risk.evaluate(
       symbol: symbol,
       side: side,
       quantity: quantity,
       marketPrice: limitPrice,
-      account: paper.account,
+      account: gateAccount,
       entryPrice: limitPrice,
       source: 'manual',
     );
     if (!verdict.allowed) {
       return TradeExecution(
         executed: false,
-        mode: AccountMode.paper,
+        mode: mode,
         reason: verdict.violations.first,
       );
+    }
+    if (mode == AccountMode.live) {
+      // LIVE: rest a REAL limit order on CoinSwitch (7-day TTL). Fills are
+      // picked up by polling the order in the heartbeat and journaled.
+      try {
+        final resp = await market.client.placeLimitOrder(
+          symbol: symbol,
+          side: side.wire,
+          price: limitPrice,
+          quantity: quantity,
+          expiryPeriod: 604800,
+        );
+        final orderId = resp['data']?['order_id']?.toString() ?? '';
+        history.addDecision(
+          symbol: symbol,
+          side: side.wire,
+          quantity: quantity,
+          price: limitPrice,
+          mode: mode.name,
+          approved: orderId.isNotEmpty,
+          reason: orderId.isNotEmpty
+              ? 'LIVE limit order placed (id $orderId)'
+              : 'Order rejected',
+          source: 'manual',
+        );
+        return TradeExecution(
+          executed: false,
+          mode: mode,
+          reason: orderId.isNotEmpty
+              ? 'LIVE limit order placed — fills when price reaches '
+                  '₹${limitPrice.toStringAsFixed(0)} (tracked on CoinSwitch)'
+              : 'Order rejected',
+        );
+      } on CoinSwitchException catch (e) {
+        return TradeExecution(
+          executed: false,
+          mode: mode,
+          reason: e.message,
+        );
+      }
     }
     final r = paper.placeLimitOrder(
       symbol: symbol,
